@@ -1,0 +1,15 @@
+# Telegram Bot Framework
+python-telegram-bot[job-queue]>=20.0
+
+# HTTP Client for Common Voice API
+httpx>=0.25.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# YAML config parsing
+pyyaml>=6.0
+
+# Async SQLite for database
+aiosqlite>=0.19.0
+

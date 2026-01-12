@@ -1,0 +1,23 @@
+# Common Voice Offline Bot Configuration
+
+# Common Voice API
+cv_api:
+  base_url: https://api.commonvoice.mozilla.org
+  token_expiry_buffer_seconds: 300  # Refresh token if less than this time remaining (5 min)
+
+# Database
+database:
+  path: data/bot.db
+
+# Supported languages for recording
+# Format: code: "Display Name"
+languages:
+  en: English
+  es: Spanish (Español)
+  qxp: Puno Quechua (Qhichwa)
+
+# Sentence limits
+sentences:
+  max: 100      # Maximum sentences per session
+  default: 50   # Default suggestion
+
