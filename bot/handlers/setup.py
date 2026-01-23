@@ -14,6 +14,7 @@ from telegram.ext import (
 from bot.config import Config
 from bot.database.db import Database
 from bot.services.cv_api import CVAPIClient, CVAPIError
+from bot.i18n import t
 from bot.handlers.registry import handler
 
 
@@ -41,21 +42,20 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """Start the setup conversation."""
     config: Config = context.bot_data["config"]
     db: Database = context.bot_data["db"]
+    telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
     
-    user = await db.get_user(update.effective_user.id)
+    user = await db.get_user(telegram_id)
     if not user:
-        await update.message.reply_text(
-            "You need to register first! Use /login to get started."
-        )
+        await update.message.reply_text(t(lang, "setup_not_registered"))
         return ConversationHandler.END
 
-    # Create keyboard with language options
+    # Create keyboard with Common Voice language options (not bot interface languages)
     keyboard = [[f"{name} ({code})"] for code, name in config.supported_languages.items()]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
 
     await update.message.reply_text(
-        "Let's set up your recording session!\n\n"
-        "Please select your **language**:",
+        t(lang, "setup_select_language"),
         reply_markup=reply_markup,
         parse_mode="Markdown",
     )
@@ -65,6 +65,8 @@ async def setup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def receive_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive language selection."""
     config: Config = context.bot_data["config"]
+    db: Database = context.bot_data["db"]
+    lang = await db.get_bot_language(update.effective_user.id)
     
     text = update.message.text.strip()
     
@@ -79,7 +81,7 @@ async def receive_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         keyboard = [[f"{name} ({code})"] for code, name in config.supported_languages.items()]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         await update.message.reply_text(
-            "Please select a valid language from the options:",
+            t(lang, "setup_invalid_language"),
             reply_markup=reply_markup,
         )
         return LANGUAGE
@@ -92,8 +94,9 @@ async def receive_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
     await update.message.reply_text(
-        f"Great! You selected **{config.supported_languages[selected_code]}**.\n\n"
-        f"How many sentences would you like to download? (max {config.max_sentences})",
+        t(lang, "setup_select_count", 
+          language=config.supported_languages[selected_code],
+          max=config.max_sentences),
         reply_markup=reply_markup,
         parse_mode="Markdown",
     )
@@ -104,6 +107,8 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     """Receive sentence count and fetch sentences."""
     config: Config = context.bot_data["config"]
     db: Database = context.bot_data["db"]
+    telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
     
     text = update.message.text.strip()
     
@@ -113,41 +118,39 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
             raise ValueError()
     except ValueError:
         await update.message.reply_text(
-            f"Please enter a number between 1 and {config.max_sentences}:"
+            t(lang, "setup_invalid_count", max=config.max_sentences)
         )
         return SENTENCE_COUNT
     
-    language = context.user_data.get("setup_language")
-    telegram_id = update.effective_user.id
+    cv_language = context.user_data.get("setup_language")
+    cv_language_name = config.supported_languages[cv_language]
     
     await update.message.reply_text(
-        f"Fetching {count} sentences in {config.supported_languages[language]}...",
+        t(lang, "setup_fetching", count=count, language=cv_language_name),
         reply_markup=ReplyKeyboardRemove(),
     )
     
     # Fetch sentences from API using admin credentials
     api_client = _get_api_client(config)
     try:
-        sentences = await api_client.get_sentences(language, limit=count)
+        sentences = await api_client.get_sentences(cv_language, limit=count)
         
         if not sentences:
             await update.message.reply_text(
-                f"❌ No sentences available for {config.supported_languages[language]}.\n\n"
-                "This language may not be fully supported yet. Try another language with /setup."
+                t(lang, "setup_no_sentences", language=cv_language_name)
             )
             return ConversationHandler.END
         
     except CVAPIError as e:
         await update.message.reply_text(
-            f"❌ Failed to fetch sentences: {e.detail or e.message}\n\n"
-            "Use /setup to try again."
+            t(lang, "setup_fetch_failed", error=e.detail or e.message)
         )
         return ConversationHandler.END
     finally:
         await api_client.close()
     
     # Save session and sentences
-    await db.save_session(telegram_id, language)
+    await db.save_session(telegram_id, cv_language)
     await db.save_sentences(telegram_id, sentences)
     
     # Clear setup data
@@ -155,10 +158,7 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     
     # Send sentences to user
     await update.message.reply_text(
-        f"✅ **Downloaded {len(sentences)} sentences!**\n\n"
-        f"I'll send them below. When you're offline, record voice messages in this format:\n"
-        f"`#1` followed by your voice recording\n\n"
-        f"The sentences will stay in your chat history so you can see them offline.",
+        t(lang, "setup_complete", count=len(sentences)),
         parse_mode="Markdown",
     )
     
@@ -176,12 +176,7 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
         )
     
     await update.message.reply_text(
-        "📝 **All sentences sent!**\n\n"
-        "To record:\n"
-        "1. Type `#1` (or any sentence number)\n"
-        "2. Send a voice message reading that sentence\n\n"
-        "Your recordings will be uploaded automatically when you're online.\n"
-        "Use /status to check your progress.",
+        t(lang, "setup_all_sent"),
         parse_mode="Markdown",
     )
     
@@ -190,10 +185,13 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the conversation."""
+    db: Database = context.bot_data["db"]
+    lang = await db.get_bot_language(update.effective_user.id)
+    
     context.user_data.pop("setup_language", None)
     
     await update.message.reply_text(
-        "Setup cancelled. Use /setup to try again.",
+        t(lang, "setup_cancelled"),
         reply_markup=ReplyKeyboardRemove(),
     )
     return ConversationHandler.END

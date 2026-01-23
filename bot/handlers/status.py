@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, CommandHandler
 from bot.config import Config
 from bot.database.db import Database
 from bot.services.cv_api import CVAPIClient, CVAPIError
+from bot.i18n import t
 from bot.handlers.registry import handler
 
 
@@ -31,14 +32,13 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Show current status and recording progress."""
     config: Config = context.bot_data["config"]
     db: Database = context.bot_data["db"]
-    
     telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
+    
     user = await db.get_user(telegram_id)
     
     if not user:
-        await update.message.reply_text(
-            "You're not registered. Use /login to get started."
-        )
+        await update.message.reply_text(t(lang, "status_not_registered"))
         return
     
     session = await db.get_session(telegram_id)
@@ -47,26 +47,26 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     # Build status message
     lines = [
-        "📊 **Your Status**\n",
-        f"👤 User: {user['username']}",
-        f"📧 Email: {user['email']}",
+        t(lang, "status_header"),
+        t(lang, "status_user", username=user['username']),
+        t(lang, "status_email", email=user['email']),
     ]
     
     if session:
         lang_name = config.supported_languages.get(session['language'], session['language'])
-        lines.append(f"🌍 Language: {lang_name}")
-        lines.append(f"📝 Sentences: {total_sentences}")
+        lines.append(t(lang, "status_language", language=lang_name))
+        lines.append(t(lang, "status_sentences", count=total_sentences))
         lines.append("")
-        lines.append("**Recording Progress:**")
-        lines.append(f"• Total recorded: {stats['total']}/{total_sentences}")
-        lines.append(f"• Pending upload: {stats['pending']}")
-        lines.append(f"• Uploaded: {stats['uploaded']}")
-        lines.append(f"• Failed: {stats['failed']}")
+        lines.append(t(lang, "status_progress_header"))
+        lines.append(t(lang, "status_progress_total", recorded=stats['total'], total=total_sentences))
+        lines.append(t(lang, "status_progress_pending", pending=stats['pending']))
+        lines.append(t(lang, "status_progress_uploaded", uploaded=stats['uploaded']))
+        lines.append(t(lang, "status_progress_failed", failed=stats['failed']))
         
         if stats['pending'] > 0:
-            lines.append("\n💡 Use /upload to upload pending recordings.")
+            lines.append(t(lang, "status_upload_hint"))
     else:
-        lines.append("\n⚠️ No active session. Use /setup to select a language.")
+        lines.append(t(lang, "status_no_session"))
     
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -74,21 +74,17 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def sentences_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show all sentences for the current session."""
     db: Database = context.bot_data["db"]
-    
     telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
     
     session = await db.get_session(telegram_id)
     if not session:
-        await update.message.reply_text(
-            "No active session. Use /setup to download sentences."
-        )
+        await update.message.reply_text(t(lang, "sentences_no_session"))
         return
     
     sentences = await db.get_all_sentences(telegram_id)
     if not sentences:
-        await update.message.reply_text(
-            "No sentences downloaded. Use /setup to download sentences."
-        )
+        await update.message.reply_text(t(lang, "sentences_none"))
         return
     
     # Get recording status for each sentence
@@ -100,8 +96,7 @@ async def sentences_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     # Send sentences in batches
     await update.message.reply_text(
-        f"📝 **Your {len(sentences)} Sentences**\n"
-        f"Legend: ⬜ Not recorded • 🟡 Pending • ✅ Uploaded • ❌ Failed\n",
+        t(lang, "sentences_header", count=len(sentences)),
         parse_mode="Markdown",
     )
     
@@ -129,21 +124,17 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Manually trigger upload of pending recordings."""
     config: Config = context.bot_data["config"]
     db: Database = context.bot_data["db"]
-    
     telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
     
     user = await db.get_user(telegram_id)
     if not user:
-        await update.message.reply_text(
-            "You're not registered. Use /login to get started."
-        )
+        await update.message.reply_text(t(lang, "upload_not_registered"))
         return
     
     session = await db.get_session(telegram_id)
     if not session:
-        await update.message.reply_text(
-            "No active session. Use /setup to get started."
-        )
+        await update.message.reply_text(t(lang, "upload_no_session"))
         return
     
     # Get pending and failed recordings
@@ -152,13 +143,11 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     all_recordings = pending + failed
     
     if not all_recordings:
-        await update.message.reply_text(
-            "No recordings to upload! Record some sentences first."
-        )
+        await update.message.reply_text(t(lang, "upload_nothing"))
         return
     
     await update.message.reply_text(
-        f"📤 Uploading {len(all_recordings)} recordings..."
+        t(lang, "upload_starting", count=len(all_recordings))
     )
     
     # Use admin credentials
@@ -211,42 +200,34 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Send summary
     if fail_count == 0:
         await update.message.reply_text(
-            f"✅ Successfully uploaded {success_count} recordings to Common Voice!"
+            t(lang, "upload_success", count=success_count)
         )
     else:
         await update.message.reply_text(
-            f"📤 Upload complete:\n"
-            f"• ✅ Uploaded: {success_count}\n"
-            f"• ❌ Failed: {fail_count}\n\n"
-            f"Use /status to see details. Failed recordings can be retried with /upload."
+            t(lang, "upload_partial", success=success_count, failed=fail_count)
         )
 
 
 async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log out and clear all user data."""
     db: Database = context.bot_data["db"]
-    
     telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
+    
     user = await db.get_user(telegram_id)
     
     if not user:
-        await update.message.reply_text(
-            "You're not registered."
-        )
+        await update.message.reply_text(t(lang, "logout_not_registered"))
         return
     
     # Check for pending uploads
     stats = await db.get_recording_stats(telegram_id)
     if stats["pending"] > 0:
-        await update.message.reply_text(
-            f"⚠️ You have {stats['pending']} recordings pending upload!\n\n"
-            f"Use /upload first to upload them, or send /logout again to confirm."
-        )
-        
         # Use context to track confirmation
-        if context.user_data.get("logout_confirmed"):
-            pass  # Continue with logout
-        else:
+        if not context.user_data.get("logout_confirmed"):
+            await update.message.reply_text(
+                t(lang, "logout_pending_warning", count=stats['pending'])
+            )
             context.user_data["logout_confirmed"] = True
             return
     
@@ -256,11 +237,7 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Clear context
     context.user_data.clear()
     
-    await update.message.reply_text(
-        "✅ You have been logged out.\n\n"
-        "Your local data has been cleared.\n"
-        "Use /login to register again."
-    )
+    await update.message.reply_text(t(lang, "logout_success"))
 
 
 # Register handlers (priority 40-59: other commands)

@@ -14,6 +14,7 @@ from telegram.ext import (
 from bot.config import Config
 from bot.database.db import Database
 from bot.services.cv_api import CVAPIClient, CVAPIError
+from bot.i18n import t
 from bot.handlers.registry import handler
 
 
@@ -40,22 +41,20 @@ def _get_api_client(config: Config) -> CVAPIClient:
 async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the login conversation."""
     db: Database = context.bot_data["db"]
+    telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
     
     # Check if already logged in
-    user = await db.get_user(update.effective_user.id)
+    user = await db.get_user(telegram_id)
     if user:
         await update.message.reply_text(
-            f"You're already logged in as **{user['username']}**!\n\n"
-            f"Use /logout to log out first, or /setup to continue.",
+            t(lang, "already_logged_in", username=user['username']),
             parse_mode="Markdown",
         )
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "Let's get you set up with Common Voice!\n\n"
-        "Please enter your **email address**:\n\n"
-        "(This will be used to identify your contributions)\n\n"
-        "Type /cancel to abort.",
+        t(lang, "login_start"),
         parse_mode="Markdown",
     )
     return EMAIL
@@ -63,20 +62,20 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive email address."""
+    db: Database = context.bot_data["db"]
+    lang = await db.get_bot_language(update.effective_user.id)
+    
     email = update.message.text.strip().lower()
     
     # Basic email validation
     if "@" not in email or "." not in email:
-        await update.message.reply_text(
-            "That doesn't look like a valid email. Please try again:"
-        )
+        await update.message.reply_text(t(lang, "login_invalid_email"))
         return EMAIL
     
     context.user_data["temp_email"] = email
     
     await update.message.reply_text(
-        "Great! Now please enter a **username** for Common Voice:\n\n"
-        "(This will be visible in the dataset)",
+        t(lang, "login_enter_username"),
         parse_mode="Markdown",
     )
     return USERNAME
@@ -86,18 +85,18 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Receive username and complete registration."""
     config: Config = context.bot_data["config"]
     db: Database = context.bot_data["db"]
+    telegram_id = update.effective_user.id
+    lang = await db.get_bot_language(telegram_id)
     
     username = update.message.text.strip()
     
     if not username or len(username) < 2:
-        await update.message.reply_text(
-            "Username must be at least 2 characters. Please try again:"
-        )
+        await update.message.reply_text(t(lang, "login_invalid_username"))
         return USERNAME
     
     email = context.user_data.get("temp_email")
     
-    await update.message.reply_text("Creating your Common Voice profile...")
+    await update.message.reply_text(t(lang, "login_creating"))
     
     # Create user in Common Voice using admin credentials
     api_client = _get_api_client(config)
@@ -110,29 +109,26 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
     except CVAPIError as e:
         await update.message.reply_text(
-            f"❌ Failed to create user: {e.detail or e.message}\n\n"
-            "Use /login to try again."
+            t(lang, "login_failed", error=e.detail or e.message)
         )
         return ConversationHandler.END
     finally:
         await api_client.close()
     
-    # Save to database (no credentials stored - using admin token)
+    # Save to database (preserve bot language preference)
     await db.save_user(
-        telegram_id=update.effective_user.id,
+        telegram_id=telegram_id,
         email=email,
         username=username,
         cv_user_id=cv_user_id,
+        bot_language=lang,
     )
     
     # Clear temporary data
     context.user_data.pop("temp_email", None)
     
     await update.message.reply_text(
-        f"✅ **Registration successful!**\n\n"
-        f"Welcome, {username}!\n"
-        f"Your Common Voice User ID: `{cv_user_id}`\n\n"
-        f"Next step: Use /setup to select your language and download sentences.",
+        t(lang, "login_success", username=username, cv_user_id=cv_user_id),
         parse_mode="Markdown",
     )
     return ConversationHandler.END
@@ -140,10 +136,13 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel the conversation."""
+    db: Database = context.bot_data["db"]
+    lang = await db.get_bot_language(update.effective_user.id)
+    
     context.user_data.pop("temp_email", None)
     
     await update.message.reply_text(
-        "Login cancelled. Use /login to try again.",
+        t(lang, "login_cancelled"),
         reply_markup=ReplyKeyboardRemove(),
     )
     return ConversationHandler.END

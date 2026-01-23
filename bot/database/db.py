@@ -1,10 +1,57 @@
 """SQLite database operations for the bot."""
 
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
 import aiosqlite
+
+logger = logging.getLogger(__name__)
+
+
+# Schema definition: table -> list of (column_name, column_definition)
+# Used for both initial creation and migrations
+SCHEMA = {
+    "users": [
+        ("telegram_id", "INTEGER PRIMARY KEY"),
+        ("cv_user_id", "TEXT NOT NULL"),
+        ("email", "TEXT NOT NULL"),
+        ("username", "TEXT NOT NULL"),
+        ("bot_language", "TEXT NOT NULL DEFAULT 'en'"),
+        ("created_at", "TEXT NOT NULL"),
+        ("updated_at", "TEXT NOT NULL"),
+    ],
+    "sessions": [
+        ("telegram_id", "INTEGER PRIMARY KEY"),
+        ("language", "TEXT NOT NULL"),
+        ("created_at", "TEXT NOT NULL"),
+    ],
+    "sentences": [
+        ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
+        ("telegram_id", "INTEGER NOT NULL"),
+        ("sentence_number", "INTEGER NOT NULL"),
+        ("text_id", "TEXT NOT NULL"),
+        ("text", "TEXT NOT NULL"),
+        ("hash", "TEXT NOT NULL"),
+        ("created_at", "TEXT NOT NULL"),
+    ],
+    "recordings": [
+        ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
+        ("telegram_id", "INTEGER NOT NULL"),
+        ("sentence_number", "INTEGER NOT NULL"),
+        ("file_id", "TEXT NOT NULL"),
+        ("status", "TEXT NOT NULL DEFAULT 'pending'"),
+        ("error_message", "TEXT"),
+        ("created_at", "TEXT NOT NULL"),
+        ("uploaded_at", "TEXT"),
+    ],
+    "user_preferences": [
+        ("telegram_id", "INTEGER PRIMARY KEY"),
+        ("bot_language", "TEXT NOT NULL DEFAULT 'en'"),
+        ("updated_at", "TEXT NOT NULL"),
+    ],
+}
 
 
 class Database:
@@ -13,61 +60,123 @@ class Database:
     def __init__(self, db_path: Path):
         self.db_path = db_path
     
+    async def _get_existing_columns(self, db, table_name: str) -> set[str]:
+        """Get set of existing column names for a table."""
+        async with db.execute(f"PRAGMA table_info({table_name})") as cursor:
+            rows = await cursor.fetchall()
+            return {row[1] for row in rows}  # row[1] is column name
+    
+    async def _table_exists(self, db, table_name: str) -> bool:
+        """Check if a table exists."""
+        async with db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+    
+    async def _migrate_table(self, db, table_name: str, columns: list[tuple[str, str]]) -> None:
+        """Add any missing columns to an existing table."""
+        existing = await self._get_existing_columns(db, table_name)
+        
+        for col_name, col_def in columns:
+            if col_name not in existing:
+                # SQLite ADD COLUMN syntax is limited - can't add NOT NULL without default
+                # So we strip NOT NULL if there's no DEFAULT
+                safe_def = col_def
+                if "NOT NULL" in col_def and "DEFAULT" not in col_def:
+                    safe_def = col_def.replace("NOT NULL", "").strip()
+                
+                sql = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {safe_def}"
+                logger.info(f"Migrating: {sql}")
+                await db.execute(sql)
+    
     async def init(self) -> None:
-        """Initialize the database schema."""
+        """Initialize the database schema, migrating if needed."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
         async with aiosqlite.connect(self.db_path) as db:
-            # Users table - stores user info (no credentials - using admin token)
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    telegram_id INTEGER PRIMARY KEY,
-                    cv_user_id TEXT NOT NULL,
-                    email TEXT NOT NULL,
-                    username TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
+            # Users table
+            if not await self._table_exists(db, "users"):
+                await db.execute("""
+                    CREATE TABLE users (
+                        telegram_id INTEGER PRIMARY KEY,
+                        cv_user_id TEXT NOT NULL,
+                        email TEXT NOT NULL,
+                        username TEXT NOT NULL,
+                        bot_language TEXT NOT NULL DEFAULT 'en',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                logger.info("Created table: users")
+            else:
+                await self._migrate_table(db, "users", SCHEMA["users"])
 
-            # Sessions table - stores active language selection
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    telegram_id INTEGER PRIMARY KEY,
-                    language TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (telegram_id) REFERENCES users (telegram_id)
-                )
-            """)
+            # Sessions table
+            if not await self._table_exists(db, "sessions"):
+                await db.execute("""
+                    CREATE TABLE sessions (
+                        telegram_id INTEGER PRIMARY KEY,
+                        language TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (telegram_id) REFERENCES users (telegram_id)
+                    )
+                """)
+                logger.info("Created table: sessions")
+            else:
+                await self._migrate_table(db, "sessions", SCHEMA["sessions"])
 
-            # Sentences table - stores downloaded sentences
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS sentences (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    telegram_id INTEGER NOT NULL,
-                    sentence_number INTEGER NOT NULL,
-                    text_id TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    hash TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (telegram_id) REFERENCES users (telegram_id),
-                    UNIQUE (telegram_id, sentence_number)
-                )
-            """)
+            # Sentences table
+            if not await self._table_exists(db, "sentences"):
+                await db.execute("""
+                    CREATE TABLE sentences (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        telegram_id INTEGER NOT NULL,
+                        sentence_number INTEGER NOT NULL,
+                        text_id TEXT NOT NULL,
+                        text TEXT NOT NULL,
+                        hash TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (telegram_id) REFERENCES users (telegram_id),
+                        UNIQUE (telegram_id, sentence_number)
+                    )
+                """)
+                logger.info("Created table: sentences")
+            else:
+                await self._migrate_table(db, "sentences", SCHEMA["sentences"])
 
-            # Recordings table - stores file_id references
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS recordings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    telegram_id INTEGER NOT NULL,
-                    sentence_number INTEGER NOT NULL,
-                    file_id TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    error_message TEXT,
-                    created_at TEXT NOT NULL,
-                    uploaded_at TEXT,
-                    FOREIGN KEY (telegram_id) REFERENCES users (telegram_id),
-                    UNIQUE (telegram_id, sentence_number)
-                )
-            """)
+            # Recordings table
+            if not await self._table_exists(db, "recordings"):
+                await db.execute("""
+                    CREATE TABLE recordings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        telegram_id INTEGER NOT NULL,
+                        sentence_number INTEGER NOT NULL,
+                        file_id TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        error_message TEXT,
+                        created_at TEXT NOT NULL,
+                        uploaded_at TEXT,
+                        FOREIGN KEY (telegram_id) REFERENCES users (telegram_id),
+                        UNIQUE (telegram_id, sentence_number)
+                    )
+                """)
+                logger.info("Created table: recordings")
+            else:
+                await self._migrate_table(db, "recordings", SCHEMA["recordings"])
+            
+            # User preferences table
+            if not await self._table_exists(db, "user_preferences"):
+                await db.execute("""
+                    CREATE TABLE user_preferences (
+                        telegram_id INTEGER PRIMARY KEY,
+                        bot_language TEXT NOT NULL DEFAULT 'en',
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                logger.info("Created table: user_preferences")
+            else:
+                await self._migrate_table(db, "user_preferences", SCHEMA["user_preferences"])
 
             await db.commit()
 
@@ -79,19 +188,21 @@ class Database:
         cv_user_id: str,
         email: str,
         username: str,
+        bot_language: str = "en",
     ) -> None:
         """Save or update user."""
         now = datetime.utcnow().isoformat()
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("""
-                INSERT INTO users (telegram_id, cv_user_id, email, username, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO users (telegram_id, cv_user_id, email, username, bot_language, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (telegram_id) DO UPDATE SET
                     cv_user_id = excluded.cv_user_id,
                     email = excluded.email,
                     username = excluded.username,
+                    bot_language = excluded.bot_language,
                     updated_at = excluded.updated_at
-            """, (telegram_id, cv_user_id, email, username, now, now))
+            """, (telegram_id, cv_user_id, email, username, bot_language, now, now))
             await db.commit()
 
     async def get_user(self, telegram_id: int) -> Optional[dict]:
@@ -111,6 +222,57 @@ class Database:
             await db.execute("DELETE FROM sentences WHERE telegram_id = ?", (telegram_id,))
             await db.execute("DELETE FROM sessions WHERE telegram_id = ?", (telegram_id,))
             await db.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
+            await db.execute("DELETE FROM user_preferences WHERE telegram_id = ?", (telegram_id,))
+            await db.commit()
+
+    # Bot language operations
+
+    async def get_bot_language(self, telegram_id: int) -> str:
+        """Get bot interface language for a user."""
+        async with aiosqlite.connect(self.db_path) as db:
+            # First check if user is registered
+            async with db.execute(
+                "SELECT bot_language FROM users WHERE telegram_id = ?", (telegram_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0]
+            
+            # Check preferences table for non-registered users
+            async with db.execute(
+                "SELECT bot_language FROM user_preferences WHERE telegram_id = ?", (telegram_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0]
+        
+        return "en"  # Default to English
+
+    async def set_bot_language(self, telegram_id: int, language: str) -> None:
+        """Set bot interface language for a user."""
+        now = datetime.utcnow().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            # Check if user is registered
+            async with db.execute(
+                "SELECT telegram_id FROM users WHERE telegram_id = ?", (telegram_id,)
+            ) as cursor:
+                is_registered = await cursor.fetchone() is not None
+            
+            if is_registered:
+                await db.execute(
+                    "UPDATE users SET bot_language = ?, updated_at = ? WHERE telegram_id = ?",
+                    (language, now, telegram_id)
+                )
+            else:
+                # Store in preferences table for non-registered users
+                await db.execute("""
+                    INSERT INTO user_preferences (telegram_id, bot_language, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (telegram_id) DO UPDATE SET
+                        bot_language = excluded.bot_language,
+                        updated_at = excluded.updated_at
+                """, (telegram_id, language, now))
+            
             await db.commit()
 
     # Session operations
