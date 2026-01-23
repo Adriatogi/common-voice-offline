@@ -51,6 +51,13 @@ SCHEMA = {
         ("bot_language", "TEXT NOT NULL DEFAULT 'en'"),
         ("updated_at", "TEXT NOT NULL"),
     ],
+    "seen_sentences": [
+        ("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
+        ("telegram_id", "INTEGER NOT NULL"),
+        ("language", "TEXT NOT NULL"),
+        ("sentence_id", "TEXT NOT NULL"),
+        ("created_at", "TEXT NOT NULL"),
+    ],
 }
 
 
@@ -178,6 +185,23 @@ class Database:
             else:
                 await self._migrate_table(db, "user_preferences", SCHEMA["user_preferences"])
 
+            # Seen sentences table (tracks all sentences ever assigned to avoid duplicates)
+            if not await self._table_exists(db, "seen_sentences"):
+                await db.execute("""
+                    CREATE TABLE seen_sentences (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        telegram_id INTEGER NOT NULL,
+                        language TEXT NOT NULL,
+                        sentence_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (telegram_id) REFERENCES users (telegram_id),
+                        UNIQUE (telegram_id, language, sentence_id)
+                    )
+                """)
+                logger.info("Created table: seen_sentences")
+            else:
+                await self._migrate_table(db, "seen_sentences", SCHEMA["seen_sentences"])
+
             await db.commit()
 
     # User operations
@@ -221,6 +245,7 @@ class Database:
             await db.execute("DELETE FROM recordings WHERE telegram_id = ?", (telegram_id,))
             await db.execute("DELETE FROM sentences WHERE telegram_id = ?", (telegram_id,))
             await db.execute("DELETE FROM sessions WHERE telegram_id = ?", (telegram_id,))
+            await db.execute("DELETE FROM seen_sentences WHERE telegram_id = ?", (telegram_id,))
             await db.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
             await db.execute("DELETE FROM user_preferences WHERE telegram_id = ?", (telegram_id,))
             await db.commit()
@@ -310,7 +335,7 @@ class Database:
 
     # Sentence operations
 
-    async def save_sentences(self, telegram_id: int, sentences: list[dict]) -> None:
+    async def save_sentences(self, telegram_id: int, language: str, sentences: list[dict]) -> None:
         """Save sentences for a user. Clears existing sentences first."""
         now = datetime.utcnow().isoformat()
         async with aiosqlite.connect(self.db_path) as db:
@@ -322,7 +347,7 @@ class Database:
                 await db.execute("""
                     INSERT INTO sentences (telegram_id, sentence_number, text_id, text, hash, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, (telegram_id, i, sentence["textId"], sentence["text"], sentence["hash"], now))
+                """, (telegram_id, i, sentence["id"], sentence["text"], sentence["hash"], now))
             
             await db.commit()
 
@@ -358,6 +383,26 @@ class Database:
                 row = await cursor.fetchone()
                 return row[0] if row else 0
 
+    async def get_seen_sentence_ids(self, telegram_id: int, language: str) -> set[str]:
+        """Get all sentence IDs this user has uploaded for a language."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT sentence_id FROM seen_sentences WHERE telegram_id = ? AND language = ?",
+                (telegram_id, language)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {row[0] for row in rows}
+
+    async def mark_sentence_uploaded(self, telegram_id: int, language: str, sentence_id: str) -> None:
+        """Mark a sentence as uploaded (seen) so it won't be assigned again."""
+        now = datetime.utcnow().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT OR IGNORE INTO seen_sentences (telegram_id, language, sentence_id, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (telegram_id, language, sentence_id, now))
+            await db.commit()
+
     # Recording operations
 
     async def save_recording(
@@ -376,6 +421,20 @@ class Database:
                     created_at = excluded.created_at,
                     uploaded_at = NULL
             """, (telegram_id, sentence_number, file_id, now))
+            await db.commit()
+
+    async def mark_recording_skipped(self, telegram_id: int, sentence_number: int) -> None:
+        """Mark a sentence as skipped (no recording needed)."""
+        now = datetime.utcnow().isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO recordings (telegram_id, sentence_number, file_id, status, created_at)
+                VALUES (?, ?, '', 'skipped', ?)
+                ON CONFLICT (telegram_id, sentence_number) DO UPDATE SET
+                    status = 'skipped',
+                    error_message = NULL,
+                    created_at = excluded.created_at
+            """, (telegram_id, sentence_number, now))
             await db.commit()
 
     async def get_recording(self, telegram_id: int, sentence_number: int) -> Optional[dict]:
@@ -431,7 +490,7 @@ class Database:
     async def get_recording_stats(self, telegram_id: int) -> dict:
         """Get recording statistics for a user."""
         async with aiosqlite.connect(self.db_path) as db:
-            stats = {"total": 0, "pending": 0, "uploaded": 0, "failed": 0}
+            stats = {"total": 0, "pending": 0, "uploaded": 0, "failed": 0, "skipped": 0}
             
             async with db.execute("""
                 SELECT status, COUNT(*) as count 

@@ -51,16 +51,23 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(t(lang, "record_no_session"))
         return
     
-    # Check if there's a pending sentence number
-    sentence_number = context.user_data.get("pending_sentence_number")
+    # Try to find sentence number from caption or reply-to
+    sentence_number = None
     
-    if not sentence_number:
-        # Check reply-to message for sentence number
-        if update.message.reply_to_message:
-            reply_text = update.message.reply_to_message.text or ""
-            match = SENTENCE_PATTERN.search(reply_text)
-            if match:
-                sentence_number = int(match.group(1))
+    # 1. Check caption on the voice/audio message (e.g., "#6" or just "6")
+    caption = update.message.caption or ""
+    match = SENTENCE_PATTERN.search(caption)
+    if not match and caption.strip().isdigit():
+        sentence_number = int(caption.strip())
+    elif match:
+        sentence_number = int(match.group(1))
+    
+    # 2. Check if replying to a message with sentence number
+    if not sentence_number and update.message.reply_to_message:
+        reply_text = update.message.reply_to_message.text or ""
+        match = SENTENCE_PATTERN.search(reply_text)
+        if match:
+            sentence_number = int(match.group(1))
     
     if not sentence_number:
         await update.message.reply_text(
@@ -76,15 +83,11 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(
             t(lang, "record_not_found", number=sentence_number, total=total)
         )
-        context.user_data.pop("pending_sentence_number", None)
         return
     
-    # Save the recording file_id
-    voice = update.message.voice
+    # Save the recording file_id (support both voice notes and audio files)
+    voice = update.message.voice or update.message.audio
     await db.save_recording(telegram_id, sentence_number, voice.file_id)
-    
-    # Clear pending sentence
-    context.user_data.pop("pending_sentence_number", None)
     
     # Get stats
     stats = await db.get_recording_stats(telegram_id)
@@ -141,10 +144,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         return
     
-    # Store pending sentence number
-    context.user_data["pending_sentence_number"] = sentence_number
-    
-    # Show the sentence and prompt for recording
+    # Show the sentence - user should reply to this message with voice recording
     await update.message.reply_text(
         t(lang, "record_prompt", number=sentence_number, text=sentence['text']),
         parse_mode="Markdown",
@@ -191,6 +191,9 @@ async def attempt_upload(
             # Mark as uploaded
             await db.update_recording_status(telegram_id, sentence_number, "uploaded")
             
+            # Mark sentence as seen so it won't be assigned again
+            await db.mark_sentence_uploaded(telegram_id, session["language"], sentence["text_id"])
+            
             await update.message.reply_text(
                 t(lang, "record_uploaded", number=sentence_number)
             )
@@ -207,6 +210,15 @@ async def attempt_upload(
         pass
 
 
+async def handle_unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle unrecognized commands."""
+    db: Database = context.bot_data["db"]
+    lang = await db.get_bot_language(update.effective_user.id)
+    
+    await update.message.reply_text(t(lang, "unknown_command"))
+
+
 # Register handlers (priority 60-79: message handlers - must be last)
-handler(priority=60)(MessageHandler(filters.VOICE, handle_voice_message))
+handler(priority=60)(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice_message))
 handler(priority=61)(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+handler(priority=99)(MessageHandler(filters.COMMAND, handle_unknown_command))

@@ -80,7 +80,7 @@ class CVAPIClient:
             headers={"Content-Type": "application/json"},
         )
         
-        if response.status_code != 200:
+        if response.status_code not in (200, 201):
             error_detail = None
             try:
                 error_data = response.json()
@@ -159,40 +159,76 @@ class CVAPIClient:
         self, 
         dataset_code: str, 
         limit: int = 50, 
-        offset: int = 0
+        validated_only: bool = True,
+        exclude_ids: set[str] | None = None,
     ) -> list[dict]:
         """Fetch sentences for a language.
         
-        Returns list of sentences with textId, text, hash.
+        Returns list of sentences with id, text, hash.
+        If validated_only=True, keeps fetching until we have enough validated sentences.
+        If exclude_ids is provided, skips sentences with those IDs.
         """
         token = await self._ensure_token()
         client = await self._get_http_client()
         
-        response = await client.get(
-            "/text/sentences",
-            params={
-                "datasetCode": dataset_code,
-                "limit": limit,
-                "offset": offset,
-            },
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        exclude_ids = exclude_ids or set()
+        collected_sentences: list[dict] = []
+        offset = 0
+        batch_size = 50  # API max is 50 per request
+        max_requests = 100  # Safety limit to prevent infinite loops
+        requests_made = 0
         
-        if response.status_code != 200:
-            error_detail = None
-            try:
-                error_data = response.json()
-                error_detail = error_data.get("detail") or error_data.get("message")
-            except Exception:
-                pass
-            raise CVAPIError(
-                f"Failed to fetch sentences: {response.status_code}",
-                status_code=response.status_code,
-                detail=error_detail,
+        while len(collected_sentences) < limit and requests_made < max_requests:
+            response = await client.get(
+                "/text/sentences",
+                params={
+                    "languageCode": dataset_code,
+                    "limit": batch_size,
+                    "offset": offset,
+                },
+                headers={"Authorization": f"Bearer {token}"},
             )
+            
+            if response.status_code != 200:
+                error_detail = None
+                try:
+                    error_data = response.json()
+                    error_detail = error_data.get("detail") or error_data.get("message")
+                    errors = error_data.get("errors")
+                    if errors:
+                        error_detail = f"{error_detail}: {errors}"
+                except Exception:
+                    pass
+                raise CVAPIError(
+                    f"Failed to fetch sentences: {response.status_code}",
+                    status_code=response.status_code,
+                    detail=error_detail,
+                )
+            
+            data = response.json()
+            batch = data.get("data", [])
+            
+            # No more sentences available
+            if not batch:
+                break
+            
+            for sentence in batch:
+                # Skip already-seen sentences
+                if sentence.get("id") in exclude_ids:
+                    continue
+                
+                # Skip non-validated if validated_only
+                if validated_only and sentence.get("isValidated") != 1:
+                    continue
+                
+                collected_sentences.append(sentence)
+                if len(collected_sentences) >= limit:
+                    break
+            
+            offset += batch_size
+            requests_made += 1
         
-        data = response.json()
-        return data.get("data", [])
+        return collected_sentences[:limit]
 
     async def upload_audio(
         self,

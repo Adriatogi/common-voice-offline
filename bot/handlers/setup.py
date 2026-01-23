@@ -1,6 +1,7 @@
 """Setup conversation handler for language selection and sentence fetching."""
 
 import os
+import asyncio
 
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
@@ -130,10 +131,17 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
         reply_markup=ReplyKeyboardRemove(),
     )
     
+    # Get previously seen sentences to avoid duplicates
+    seen_ids = await db.get_seen_sentence_ids(telegram_id, cv_language)
+    
     # Fetch sentences from API using admin credentials
     api_client = _get_api_client(config)
     try:
-        sentences = await api_client.get_sentences(cv_language, limit=count)
+        sentences = await api_client.get_sentences(
+            cv_language, 
+            limit=count, 
+            exclude_ids=seen_ids,
+        )
         
         if not sentences:
             await update.message.reply_text(
@@ -149,9 +157,9 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     finally:
         await api_client.close()
     
-    # Save session and sentences
+    # Save session and sentences (also marks them as seen)
     await db.save_session(telegram_id, cv_language)
-    await db.save_sentences(telegram_id, sentences)
+    await db.save_sentences(telegram_id, cv_language, sentences)
     
     # Clear setup data
     context.user_data.pop("setup_language", None)
@@ -162,18 +170,14 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
         parse_mode="Markdown",
     )
     
-    # Send sentences in batches to avoid flooding
-    batch_size = 10
-    for i in range(0, len(sentences), batch_size):
-        batch = sentences[i:i + batch_size]
-        message_lines = []
-        for j, sentence in enumerate(batch, start=i + 1):
-            message_lines.append(f"**#{j}** {sentence['text']}")
-        
+    # Send each sentence as individual message (so user can reply to it offline)
+    for i, sentence in enumerate(sentences, start=1):
         await update.message.reply_text(
-            "\n\n".join(message_lines),
+            f"**#{i}** {sentence['text']}",
             parse_mode="Markdown",
         )
+        # Small delay to avoid Telegram rate limits
+        await asyncio.sleep(0.1)
     
     await update.message.reply_text(
         t(lang, "setup_all_sent"),
