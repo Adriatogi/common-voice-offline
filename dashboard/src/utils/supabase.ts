@@ -23,7 +23,7 @@ export interface UserStats {
   joined_at: string
   current_language: string | null
   total_contributions: number
-  recordings_uploaded: number
+  languages_contributed: number
 }
 
 export interface UserSentence {
@@ -44,17 +44,33 @@ export async function getStatsByLanguage(): Promise<LanguageStats[]> {
 }
 
 export async function getUserStats(cvUserId: string): Promise<UserStats | null> {
-  const { data, error } = await supabase
-    .from('user_stats')
-    .select('*')
+  // Get user info from users table
+  const { data: user, error: userError } = await supabase
+    .from('users')
+    .select('cv_user_id, username, current_language, created_at')
     .eq('cv_user_id', cvUserId)
     .single()
   
-  if (error) {
-    if (error.code === 'PGRST116') return null // Not found
-    throw error
+  if (userError) {
+    if (userError.code === 'PGRST116') return null // Not found
+    throw userError
   }
-  return data
+  
+  // Get stats from user_stats view
+  const { data: stats } = await supabase
+    .from('user_stats')
+    .select('total_contributions, languages_contributed')
+    .eq('cv_user_id', cvUserId)
+    .single()
+  
+  return {
+    cv_user_id: user.cv_user_id,
+    username: user.username,
+    joined_at: user.created_at,
+    current_language: user.current_language,
+    total_contributions: stats?.total_contributions ?? 0,
+    languages_contributed: stats?.languages_contributed ?? 0,
+  }
 }
 
 export async function getUserSentences(cvUserId: string): Promise<UserSentence[]> {

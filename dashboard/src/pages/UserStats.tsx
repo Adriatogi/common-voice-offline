@@ -91,8 +91,8 @@ export default function UserStats() {
           <div className="stat-label">{t(lang, 'totalContributions')}</div>
         </div>
         <div className="stat-box">
-          <div className="stat-value">{stats.recordings_uploaded}</div>
-          <div className="stat-label">{t(lang, 'recordings')}</div>
+          <div className="stat-value">{stats.languages_contributed}</div>
+          <div className="stat-label">{t(lang, 'languagesContributed')}</div>
         </div>
         {stats.current_language && (
           <div className="stat-box">
