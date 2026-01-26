@@ -69,6 +69,13 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     stats = await db.get_recording_stats(session_id) if session_id else {"total": 0, "pending": 0, "uploaded": 0, "failed": 0, "skipped": 0}
     total_sentences = await db.get_sentence_count(session_id) if session_id else 0
     
+    # Check if logged out
+    is_logged_out = not user.get("cv_token")
+    
+    if is_logged_out:
+        await update.message.reply_text(t(lang, "status_logged_out"), parse_mode="Markdown")
+        return
+    
     # Build status message
     lines = [
         t(lang, "status_header"),

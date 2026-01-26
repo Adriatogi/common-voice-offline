@@ -41,13 +41,14 @@ class Database:
         username: str,
         bot_language: str = "en",
     ) -> None:
-        """Save or update user."""
+        """Save or update user and mark as logged in."""
         now = self._now()
         data = {
             "telegram_id": telegram_id,
             "cv_user_id": cv_user_id,
             "email": email,
             "username": username,
+            "cv_token": "active",  # Marker to indicate logged in (we use admin credentials)
             "bot_language": bot_language,
             "created_at": now,
             "updated_at": now,

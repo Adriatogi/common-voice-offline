@@ -44,19 +44,9 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    # Check if already logged in
+    # Check if already logged in (has token)
     user = await db.get_user(telegram_id)
-    if user:
-        # Check if logged out (no token)
-        if not user.get("cv_token"):
-            # User logged out - allow re-login
-            await update.message.reply_text(
-                t(lang, "login_welcome_back", username=user['username']),
-                parse_mode="Markdown",
-            )
-            return EMAIL
-        
-        # User is actively logged in
+    if user and user.get("cv_token"):
         await update.message.reply_text(
             t(lang, "already_logged_in", username=user['username']),
             parse_mode="Markdown",
@@ -106,9 +96,16 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     email = context.user_data.get("temp_email")
     
-    await update.message.reply_text(t(lang, "login_creating"))
+    # Check if user already exists in our database
+    existing_user = await db.get_user(telegram_id)
+    is_returning = existing_user is not None
     
-    # Create user in Common Voice using admin credentials
+    if is_returning:
+        await update.message.reply_text(t(lang, "login_logging_in"))
+    else:
+        await update.message.reply_text(t(lang, "login_creating"))
+    
+    # Create/get user in Common Voice using admin credentials
     api_client = _get_api_client(config)
     try:
         user_info = await api_client.create_user(email, username)
@@ -137,10 +134,16 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Clear temporary data
     context.user_data.pop("temp_email", None)
     
-    await update.message.reply_text(
-        t(lang, "login_success", username=username, cv_user_id=cv_user_id),
-        parse_mode="Markdown",
-    )
+    if is_returning:
+        await update.message.reply_text(
+            t(lang, "login_welcome_back", username=username, cv_user_id=cv_user_id),
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(
+            t(lang, "login_success", username=username, cv_user_id=cv_user_id),
+            parse_mode="Markdown",
+        )
     return ConversationHandler.END
 
 

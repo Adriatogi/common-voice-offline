@@ -41,14 +41,15 @@ Ready to start? Use /login to begin!
         
         # Login flow
         "already_logged_in": "You're already logged in as **{username}**!\n\nUse /logout to log out first, or /setup to continue.",
-        "login_welcome_back": "Welcome back! You were previously logged in as **{username}**.\n\nEnter your **email address** to log in:\n\n(Use the same email to continue as {username}, or a different email to switch accounts)\n\nType /cancel to abort.",
         "login_start": "Let's get you set up with Common Voice!\n\nPlease enter your **email address**:\n\n(This will be used to identify your contributions)\n\nType /cancel to abort.",
         "login_invalid_email": "That doesn't look like a valid email. Please try again:",
         "login_enter_username": "Great! Now please enter a **username** for Common Voice:\n\n(This will be visible in the dataset)",
         "login_invalid_username": "Username must be at least 2 characters. Please try again:",
         "login_creating": "Creating your Common Voice profile...",
+        "login_logging_in": "Logging you in...",
         "login_failed": "❌ Failed to create user: {error}\n\nUse /login to try again.",
         "login_success": "✅ **Registration successful!**\n\nWelcome, {username}!\nUser ID: `{cv_user_id}`\n\n💡 Save this ID to view your stats on the dashboard.\n\nNext step: Use /setup to select your language and download sentences.",
+        "login_welcome_back": "✅ **Welcome back, {username}!**\n\nUser ID: `{cv_user_id}`\n\nUse /setup to continue recording, or /status to see your progress.",
         "login_cancelled": "Login cancelled. Use /login to try again.",
         
         # Setup flow
@@ -95,6 +96,7 @@ Ready to start? Use /login to begin!
         "status_upload_hint": "\n💡 /upload to upload pending recordings",
         "status_remaining_hint": "💡 /sentences left to see remaining | /skip to skip | /clear to start fresh",
         "status_no_session": "\n⚠️ No active session. Use /setup to select a language.",
+        "status_logged_out": "⚠️ **You are logged out.** Use /login to log in.",
         
         # Sentences list
         "sentences_no_session": "No active session. Use /setup to download sentences.",
@@ -179,14 +181,15 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         
         # Login flow
         "already_logged_in": "Ya has iniciado sesión como **{username}**.\n\nUsa /logout para cerrar sesión, o /setup para continuar.",
-        "login_welcome_back": "¡Bienvenido/a de vuelta! Anteriormente iniciaste sesión como **{username}**.\n\nIngresa tu **correo electrónico** para iniciar sesión:\n\n(Usa el mismo email para continuar como {username}, o uno diferente para cambiar de cuenta)\n\nEscribe /cancel para cancelar.",
         "login_start": "¡Vamos a configurar tu cuenta de Common Voice!\n\nPor favor, ingresa tu **correo electrónico**:\n\n(Se usará para identificar tus contribuciones)\n\nEscribe /cancel para cancelar.",
         "login_invalid_email": "Eso no parece un email válido. Por favor, intenta de nuevo:",
         "login_enter_username": "¡Genial! Ahora ingresa un **nombre de usuario** para Common Voice:\n\n(Será visible en el dataset)",
         "login_invalid_username": "El nombre de usuario debe tener al menos 2 caracteres. Intenta de nuevo:",
         "login_creating": "Creando tu perfil de Common Voice...",
+        "login_logging_in": "Iniciando sesión...",
         "login_failed": "❌ Error al crear usuario: {error}\n\nUsa /login para intentar de nuevo.",
         "login_success": "✅ **¡Registro exitoso!**\n\n¡Bienvenido/a, {username}!\nID de usuario: `{cv_user_id}`\n\n💡 Guarda este ID para ver tus estadísticas en el dashboard.\n\nSiguiente paso: Usa /setup para seleccionar tu idioma y descargar oraciones.",
+        "login_welcome_back": "✅ **¡Bienvenido/a de vuelta, {username}!**\n\nID de usuario: `{cv_user_id}`\n\nUsa /setup para continuar grabando, o /status para ver tu progreso.",
         "login_cancelled": "Login cancelado. Usa /login para intentar de nuevo.",
         
         # Setup flow
@@ -233,6 +236,7 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         "status_upload_hint": "\n💡 /upload para subir grabaciones pendientes",
         "status_remaining_hint": "💡 /sentences left para ver restantes | /skip para saltar | /clear para reiniciar",
         "status_no_session": "\n⚠️ Sin sesión activa. Usa /setup para seleccionar un idioma.",
+        "status_logged_out": "⚠️ **Has cerrado sesión.** Usa /login para iniciar sesión.",
         
         # Sentences list
         "sentences_no_session": "Sin sesión activa. Usa /setup para descargar oraciones.",
