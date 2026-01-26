@@ -94,12 +94,6 @@ export default function UserStats() {
           <div className="stat-value">{stats.languages_contributed}</div>
           <div className="stat-label">{t(lang, 'languagesContributed')}</div>
         </div>
-        {stats.current_language && (
-          <div className="stat-box">
-            <div className="stat-value" style={{ fontSize: '1.25rem' }}>{stats.current_language}</div>
-            <div className="stat-label">{t(lang, 'currentLanguage')}</div>
-          </div>
-        )}
       </div>
 
       {sentences.length > 0 && (
