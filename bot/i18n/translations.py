@@ -47,7 +47,7 @@ Ready to start? Use /login to begin!
         "login_invalid_username": "Username must be at least 2 characters. Please try again:",
         "login_creating": "Creating your Common Voice profile...",
         "login_failed": "❌ Failed to create user: {error}\n\nUse /login to try again.",
-        "login_success": "✅ **Registration successful!**\n\nWelcome, {username}!\nUser ID: `{cv_user_id}` (you won't need this)\n\nNext step: Use /setup to select your language and download sentences.",
+        "login_success": "✅ **Registration successful!**\n\nWelcome, {username}!\nUser ID: `{cv_user_id}`\n\n💡 Save this ID to view your stats on the dashboard.\n\nNext step: Use /setup to select your language and download sentences.",
         "login_cancelled": "Login cancelled. Use /login to try again.",
         
         # Setup flow
@@ -81,6 +81,7 @@ Ready to start? Use /login to begin!
         "status_not_registered": "You're not registered. Use /login to get started.",
         "status_header": "📊 **Your Status**\n",
         "status_user": "👤 User: {username}",
+        "status_user_id": "🆔 User ID: `{user_id}`",
         "status_email": "📧 Email: {email}",
         "status_language": "🌍 Language: {language}",
         "status_sentences": "📝 Sentences: {count}",
@@ -181,7 +182,7 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         "login_invalid_username": "El nombre de usuario debe tener al menos 2 caracteres. Intenta de nuevo:",
         "login_creating": "Creando tu perfil de Common Voice...",
         "login_failed": "❌ Error al crear usuario: {error}\n\nUsa /login para intentar de nuevo.",
-        "login_success": "✅ **¡Registro exitoso!**\n\n¡Bienvenido/a, {username}!\nID de usuario: `{cv_user_id}` (no lo necesitarás)\n\nSiguiente paso: Usa /setup para seleccionar tu idioma y descargar oraciones.",
+        "login_success": "✅ **¡Registro exitoso!**\n\n¡Bienvenido/a, {username}!\nID de usuario: `{cv_user_id}`\n\n💡 Guarda este ID para ver tus estadísticas en el dashboard.\n\nSiguiente paso: Usa /setup para seleccionar tu idioma y descargar oraciones.",
         "login_cancelled": "Login cancelado. Usa /login para intentar de nuevo.",
         
         # Setup flow
@@ -215,6 +216,7 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         "status_not_registered": "No estás registrado. Usa /login para comenzar.",
         "status_header": "📊 **Tu Estado**\n",
         "status_user": "👤 Usuario: {username}",
+        "status_user_id": "🆔 ID de usuario: `{user_id}`",
         "status_email": "📧 Email: {email}",
         "status_language": "🌍 Idioma: {language}",
         "status_sentences": "📝 Oraciones: {count}",

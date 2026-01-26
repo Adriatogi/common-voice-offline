@@ -5,9 +5,7 @@ cv_api:
   base_url: https://api.commonvoice.mozilla.org
   token_expiry_buffer_seconds: 300  # Refresh token if less than this time remaining (5 min)
 
-# Database
-database:
-  path: data/bot.db
+# Database: Supabase (configured via SUPABASE_URL and SUPABASE_KEY in .env)
 
 # Supported languages for recording
 # Format: code: "Display Name"

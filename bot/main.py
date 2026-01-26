@@ -37,8 +37,8 @@ async def post_init(application: Application) -> None:
     config = get_config()
     application.bot_data["config"] = config
     
-    # Initialize database
-    db = Database(config.database_path)
+    # Initialize database (Supabase)
+    db = Database()
     await db.init()
     application.bot_data["db"] = db
     
@@ -60,6 +60,10 @@ def main() -> None:
     # Validate CV credentials are set
     if not os.getenv("CV_CLIENT_ID") or not os.getenv("CV_CLIENT_SECRET"):
         raise ValueError("CV_CLIENT_ID and CV_CLIENT_SECRET environment variables are required")
+    
+    # Validate Supabase credentials are set
+    if not os.getenv("SUPABASE_URL") or not os.getenv("SUPABASE_KEY"):
+        raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables are required")
     
     # Create persistence for conversation state
     persistence = PicklePersistence(filepath=str(DATA_DIR / "bot_persistence.pickle"))

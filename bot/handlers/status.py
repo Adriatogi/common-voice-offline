@@ -70,6 +70,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lines = [
         t(lang, "status_header"),
         t(lang, "status_user", username=user['username']),
+        t(lang, "status_user_id", user_id=user['cv_user_id']),
         t(lang, "status_email", email=user['email']),
     ]
     
