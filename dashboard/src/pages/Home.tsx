@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { getStatsByLanguage, supabase } from '../lib/supabase'
-import { useLanguage } from '../lib/LanguageContext'
-import { t } from '../lib/i18n'
+import { getStatsByLanguage, supabase } from '../utils/supabase'
+import { useLanguage } from '../utils/LanguageContext'
+import { t } from '../utils/i18n'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
-import type { LanguageStats } from '../lib/supabase'
+import type { LanguageStats } from '../utils/supabase'
 
 export default function Home() {
   const { lang } = useLanguage()

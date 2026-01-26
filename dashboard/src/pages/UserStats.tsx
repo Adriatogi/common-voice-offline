@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getUserStats, getUserSentences } from '../lib/supabase'
-import { useLanguage } from '../lib/LanguageContext'
-import { t } from '../lib/i18n'
+import { getUserStats, getUserSentences } from '../utils/supabase'
+import { useLanguage } from '../utils/LanguageContext'
+import { t } from '../utils/i18n'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
-import type { UserStats as UserStatsType, UserSentence } from '../lib/supabase'
+import type { UserStats as UserStatsType, UserSentence } from '../utils/supabase'
 
 export default function UserStats() {
   const { lang } = useLanguage()

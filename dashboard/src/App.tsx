@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { LanguageProvider } from './lib/LanguageContext'
+import { LanguageProvider } from './utils/LanguageContext'
 import Home from './pages/Home'
 import UserStats from './pages/UserStats'
 
