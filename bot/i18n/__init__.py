@@ -12,6 +12,14 @@ BOT_LANGUAGES = {
 }
 
 
+def get_all_skip_words() -> set[str]:
+    """Get all skip words from all languages (for reply detection)."""
+    return {
+        TRANSLATIONS[lang].get("skip_word", "skip").lower()
+        for lang in TRANSLATIONS
+    }
+
+
 def t(lang: str, key: str, **kwargs) -> str:
     """
     Get translated string for the given language and key.

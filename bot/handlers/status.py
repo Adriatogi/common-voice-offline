@@ -62,9 +62,12 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(t(lang, "status_not_registered"))
         return
     
-    session = await db.get_session(telegram_id)
-    stats = await db.get_recording_stats(telegram_id)
-    total_sentences = await db.get_sentence_count(telegram_id)
+    session = await db.get_current_session(telegram_id)
+    
+    # Stats are per-session
+    session_id = session["id"] if session else None
+    stats = await db.get_recording_stats(session_id) if session_id else {"total": 0, "pending": 0, "uploaded": 0, "failed": 0, "skipped": 0}
+    total_sentences = await db.get_sentence_count(session_id) if session_id else 0
     
     # Build status message
     lines = [
@@ -111,13 +114,14 @@ async def sentences_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    session = await db.get_session(telegram_id)
+    session = await db.get_current_session(telegram_id)
     if not session:
         await update.message.reply_text(t(lang, "sentences_no_session"))
         return
     
-    sentences = await db.get_all_sentences(telegram_id)
-    if not sentences:
+    # Get all sentences with their recording status
+    sentence_data = await db.get_all_recordings_for_session(session["id"])
+    if not sentence_data:
         await update.message.reply_text(t(lang, "sentences_none"))
         return
     
@@ -125,12 +129,13 @@ async def sentences_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     args = update.message.text.split()[1:]  # Remove /sentences
     show_only_left = args and args[0].lower() in ("left", "remaining", "todo")
     
-    # Get recording status for each sentence
+    # Build recording status map
     recording_status = {}
-    for s in sentences:
-        recording = await db.get_recording(telegram_id, s["sentence_number"])
-        if recording:
-            recording_status[s["sentence_number"]] = recording["status"]
+    sentences = []
+    for item in sentence_data:
+        sentences.append(item)
+        if item["recording"]:
+            recording_status[item["sentence_number"]] = item["recording"]["status"]
     
     # Filter sentences if requested (exclude any with recording status)
     if show_only_left:
@@ -180,14 +185,14 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(t(lang, "upload_not_registered"))
         return
     
-    session = await db.get_session(telegram_id)
+    session = await db.get_current_session(telegram_id)
     if not session:
         await update.message.reply_text(t(lang, "upload_no_session"))
         return
     
     # Get pending and failed recordings
-    pending = await db.get_pending_recordings(telegram_id)
-    failed = await db.get_failed_recordings(telegram_id)
+    pending = await db.get_pending_recordings(session["id"])
+    failed = await db.get_failed_recordings(session["id"])
     all_recordings = pending + failed
     
     if not all_recordings:
@@ -221,9 +226,7 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     text_hash=rec["hash"],
                 )
                 
-                await db.update_recording_status(
-                    telegram_id, rec["sentence_number"], "uploaded"
-                )
+                await db.update_recording_status(rec["sentence_id"], "uploaded")
                 
                 # Mark sentence as seen so it won't be assigned again (save text for dashboard)
                 await db.mark_sentence_uploaded(telegram_id, session["language"], rec["text_id"], rec["text"])
@@ -232,16 +235,14 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 
             except CVAPIError as e:
                 await db.update_recording_status(
-                    telegram_id, 
-                    rec["sentence_number"], 
+                    rec["sentence_id"], 
                     "failed",
                     error_message=str(e.detail or e.message)
                 )
                 fail_count += 1
             except Exception as e:
                 await db.update_recording_status(
-                    telegram_id,
-                    rec["sentence_number"],
+                    rec["sentence_id"],
                     "failed",
                     error_message=str(e)
                 )
@@ -266,12 +267,12 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    session = await db.get_session(telegram_id)
+    session = await db.get_current_session(telegram_id)
     if not session:
         await update.message.reply_text(t(lang, "skip_no_session"))
         return
     
-    total_sentences = await db.get_sentence_count(telegram_id)
+    total_sentences = await db.get_sentence_count(session["id"])
     if total_sentences == 0:
         await update.message.reply_text(t(lang, "skip_no_sentences"))
         return
@@ -296,10 +297,10 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Skip each sentence (mark as skipped so it won't be assigned again)
     skipped = []
     for num in numbers:
-        sentence = await db.get_sentence(telegram_id, num)
+        sentence = await db.get_sentence_by_number(session["id"], num)
         if sentence:
             await db.mark_sentence_skipped(telegram_id, session["language"], sentence["text_id"])
-            await db.mark_recording_skipped(telegram_id, num)
+            await db.mark_recording_skipped(sentence["id"])
             skipped.append(num)
     
     if skipped:
@@ -328,7 +329,8 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     
     # Check for pending uploads
-    stats = await db.get_recording_stats(telegram_id)
+    session = await db.get_current_session(telegram_id)
+    stats = await db.get_recording_stats(session["id"]) if session else {"pending": 0}
     if stats["pending"] > 0:
         # Use context to track confirmation
         if not context.user_data.get("logout_confirmed"):
@@ -355,22 +357,18 @@ async def resend_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    session = await db.get_session(telegram_id)
+    session = await db.get_current_session(telegram_id)
     if not session:
         await update.message.reply_text(t(lang, "resend_no_session"))
         return
     
-    sentences = await db.get_all_sentences(telegram_id)
-    if not sentences:
+    sentence_data = await db.get_all_recordings_for_session(session["id"])
+    if not sentence_data:
         await update.message.reply_text(t(lang, "resend_no_sentences"))
         return
     
     # Filter to only unrecorded sentences
-    remaining = []
-    for s in sentences:
-        recording = await db.get_recording(telegram_id, s["sentence_number"])
-        if not recording:
-            remaining.append(s)
+    remaining = [s for s in sentence_data if not s["recording"]]
     
     if not remaining:
         await update.message.reply_text(t(lang, "resend_all_done"))

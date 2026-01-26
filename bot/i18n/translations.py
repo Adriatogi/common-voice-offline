@@ -121,6 +121,7 @@ Ready to start? Use /login to begin!
         # Skip
         "skip_no_session": "No active session. Use /setup to download sentences first.",
         "skip_no_sentences": "No sentences to skip. Use /setup to download sentences.",
+        "skip_word": "skip",  # Word users can reply to skip a sentence
         "skip_usage": "Usage: `/skip 1` or `/skip 1,3,5` or `/skip 1-5`\n\nThis marks sentences as done so they won't be assigned again.\nYou have sentences #1-#{total}.",
         "skip_invalid": "No valid sentence numbers found. You have sentences #1-#{total}.",
         "skip_success": "⏭️ Skipped: {numbers}\n\nThese sentences won't be assigned again.",
@@ -258,6 +259,7 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         # Skip
         "skip_no_session": "Sin sesión activa. Usa /setup para descargar oraciones primero.",
         "skip_no_sentences": "No hay oraciones para saltar. Usa /setup para descargar oraciones.",
+        "skip_word": "saltar",  # Word users can reply to skip a sentence
         "skip_usage": "Uso: `/skip 1` o `/skip 1,3,5` o `/skip 1-5`\n\nEsto marca las oraciones como hechas para que no se asignen de nuevo.\nTienes oraciones #1-#{total}.",
         "skip_invalid": "No se encontraron números de oración válidos. Tienes oraciones #1-#{total}.",
         "skip_success": "⏭️ Saltadas: {numbers}\n\nEstas oraciones no se asignarán de nuevo.",

@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes, MessageHandler, filters
 from bot.config import Config
 from bot.database.db import Database
 from bot.services.cv_api import CVAPIClient, CVAPIError
-from bot.i18n import t
+from bot.i18n import t, get_all_skip_words
 from bot.handlers.registry import handler
 
 
@@ -46,10 +46,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     
     # Check if user has an active session
-    session = await db.get_session(telegram_id)
+    session = await db.get_current_session(telegram_id)
     if not session:
         await update.message.reply_text(t(lang, "record_no_session"))
         return
+    
+    session_id = session["id"]
     
     # Try to find sentence number from caption or reply-to
     sentence_number = None
@@ -77,9 +79,9 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     
     # Verify sentence exists
-    sentence = await db.get_sentence(telegram_id, sentence_number)
+    sentence = await db.get_sentence_by_number(session_id, sentence_number)
     if not sentence:
-        total = await db.get_sentence_count(telegram_id)
+        total = await db.get_sentence_count(session_id)
         await update.message.reply_text(
             t(lang, "record_not_found", number=sentence_number, total=total)
         )
@@ -87,11 +89,11 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Save the recording file_id (support both voice notes and audio files)
     voice = update.message.voice or update.message.audio
-    await db.save_recording(telegram_id, sentence_number, voice.file_id)
+    await db.save_recording(sentence["id"], voice.file_id)
     
     # Get stats
-    stats = await db.get_recording_stats(telegram_id)
-    total_sentences = await db.get_sentence_count(telegram_id)
+    stats = await db.get_recording_stats(session_id)
+    total_sentences = await db.get_sentence_count(session_id)
     
     await update.message.reply_text(
         t(lang, "record_success",
@@ -103,19 +105,28 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     
     # Attempt immediate upload if online
-    await attempt_upload(update, context, telegram_id, sentence_number, lang)
+    await attempt_upload(update, context, telegram_id, sentence["id"], lang)
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle text messages that might contain sentence references."""
+    """Handle text messages that might contain sentence references or skip commands."""
     db: Database = context.bot_data["db"]
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    text = update.message.text.strip()
+    text = update.message.text.strip().lower()
+    
+    # Check if user is replying with a skip word to a sentence message
+    if text in get_all_skip_words() and update.message.reply_to_message:
+        reply_text = update.message.reply_to_message.text or ""
+        match = SENTENCE_PATTERN.search(reply_text)
+        if match:
+            sentence_number = int(match.group(1))
+            await skip_sentence(update, context, telegram_id, sentence_number, lang)
+            return
     
     # Check for sentence number pattern
-    match = SENTENCE_PATTERN.match(text)
+    match = SENTENCE_PATTERN.match(update.message.text.strip())
     if not match:
         # Not a sentence reference - remind user to use commands
         await update.message.reply_text(
@@ -127,15 +138,15 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     sentence_number = int(match.group(1))
     
     # Check if user has a session
-    session = await db.get_session(telegram_id)
+    session = await db.get_current_session(telegram_id)
     if not session:
         await update.message.reply_text(t(lang, "record_no_session"))
         return
     
     # Get the sentence
-    sentence = await db.get_sentence(telegram_id, sentence_number)
+    sentence = await db.get_sentence_by_number(session["id"], sentence_number)
     if not sentence:
-        total = await db.get_sentence_count(telegram_id)
+        total = await db.get_sentence_count(session["id"])
         if total == 0:
             await update.message.reply_text(t(lang, "record_no_sentences"))
         else:
@@ -151,11 +162,45 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+async def skip_sentence(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    telegram_id: int,
+    sentence_number: int,
+    lang: str,
+) -> None:
+    """Skip a single sentence."""
+    db: Database = context.bot_data["db"]
+    
+    # Check if user has a session
+    session = await db.get_current_session(telegram_id)
+    if not session:
+        await update.message.reply_text(t(lang, "record_no_session"))
+        return
+    
+    # Get the sentence
+    sentence = await db.get_sentence_by_number(session["id"], sentence_number)
+    if not sentence:
+        total = await db.get_sentence_count(session["id"])
+        await update.message.reply_text(
+            t(lang, "record_not_found", number=sentence_number, total=total)
+        )
+        return
+    
+    # Mark as skipped
+    await db.mark_sentence_skipped(telegram_id, session["language"], sentence["text_id"])
+    await db.mark_recording_skipped(sentence["id"])
+    
+    await update.message.reply_text(
+        t(lang, "skip_success", numbers=f"#{sentence_number}")
+    )
+
+
 async def attempt_upload(
     update: Update, 
     context: ContextTypes.DEFAULT_TYPE, 
     telegram_id: int, 
-    sentence_number: int,
+    sentence_id: int,
     lang: str,
 ) -> None:
     """Attempt to upload a recording immediately."""
@@ -163,9 +208,9 @@ async def attempt_upload(
     db: Database = context.bot_data["db"]
     
     # Get recording and sentence
-    recording = await db.get_recording(telegram_id, sentence_number)
-    sentence = await db.get_sentence(telegram_id, sentence_number)
-    session = await db.get_session(telegram_id)
+    recording = await db.get_recording(sentence_id)
+    sentence = await db.get_sentence_by_id(sentence_id)
+    session = await db.get_current_session(telegram_id)
     user = await db.get_user(telegram_id)
     
     if not all([recording, sentence, session, user]):
@@ -189,13 +234,13 @@ async def attempt_upload(
             )
             
             # Mark as uploaded
-            await db.update_recording_status(telegram_id, sentence_number, "uploaded")
+            await db.update_recording_status(sentence_id, "uploaded")
             
             # Mark sentence as seen so it won't be assigned again (save text for dashboard)
             await db.mark_sentence_uploaded(telegram_id, session["language"], sentence["text_id"], sentence["text"])
             
             await update.message.reply_text(
-                t(lang, "record_uploaded", number=sentence_number)
+                t(lang, "record_uploaded", number=sentence["sentence_number"])
             )
         finally:
             await api_client.close()
@@ -203,7 +248,7 @@ async def attempt_upload(
     except CVAPIError as e:
         # Keep as pending for later retry
         await db.update_recording_status(
-            telegram_id, sentence_number, "failed", error_message=str(e.detail or e.message)
+            sentence_id, "failed", error_message=str(e.detail or e.message)
         )
     except Exception:
         # Network error, keep as pending

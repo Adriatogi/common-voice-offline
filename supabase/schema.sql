@@ -17,9 +17,10 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Sessions table: tracks active recording sessions
+-- Sessions table: tracks recording sessions (each /setup creates a new session)
 CREATE TABLE sessions (
-    telegram_id BIGINT PRIMARY KEY REFERENCES users(telegram_id) ON DELETE CASCADE,
+    id BIGSERIAL PRIMARY KEY,
+    telegram_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
     language TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -27,26 +28,25 @@ CREATE TABLE sessions (
 -- Sentences table: sentences assigned to users for recording
 CREATE TABLE sentences (
     id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    sentence_number INTEGER NOT NULL,
+    session_id BIGINT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    sentence_number INTEGER NOT NULL,  -- 1, 2, 3... within the session
     text_id TEXT NOT NULL,
     text TEXT NOT NULL,
     hash TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (telegram_id, sentence_number)
+    UNIQUE (session_id, sentence_number)
 );
 
 -- Recordings table: tracks voice recordings for each sentence
 CREATE TABLE recordings (
     id BIGSERIAL PRIMARY KEY,
-    telegram_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    sentence_number INTEGER NOT NULL,
+    sentence_id BIGINT NOT NULL REFERENCES sentences(id) ON DELETE CASCADE,
     file_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     uploaded_at TIMESTAMPTZ,
-    UNIQUE (telegram_id, sentence_number)
+    UNIQUE (sentence_id)  -- one recording per sentence
 );
 
 -- User preferences table: for non-registered users (language preference)
@@ -72,8 +72,9 @@ CREATE TABLE seen_sentences (
 -- INDEXES (for query performance)
 -- ============================================
 
-CREATE INDEX idx_sentences_telegram_id ON sentences(telegram_id);
-CREATE INDEX idx_recordings_telegram_id ON recordings(telegram_id);
+CREATE INDEX idx_sessions_telegram_id ON sessions(telegram_id);
+CREATE INDEX idx_sentences_session_id ON sentences(session_id);
+CREATE INDEX idx_recordings_sentence_id ON recordings(sentence_id);
 CREATE INDEX idx_recordings_status ON recordings(status);
 CREATE INDEX idx_seen_sentences_telegram_id_language ON seen_sentences(telegram_id, language);
 CREATE INDEX idx_seen_sentences_status ON seen_sentences(status);
@@ -120,6 +121,12 @@ CREATE POLICY "Allow anon to read seen_sentences"
     TO anon
     USING (true);
 
+-- Allow anon to read sentences (for stats views)
+CREATE POLICY "Allow anon to read sentences"
+    ON sentences FOR SELECT
+    TO anon
+    USING (true);
+
 -- ============================================
 -- VIEWS (for dashboard queries)
 -- ============================================
@@ -128,12 +135,12 @@ CREATE POLICY "Allow anon to read seen_sentences"
 CREATE VIEW stats_by_language AS
 SELECT 
     s.language,
-    COUNT(DISTINCT u.telegram_id) as contributors,
+    COUNT(DISTINCT s.telegram_id) as contributors,
     COUNT(DISTINCT CASE WHEN r.status = 'uploaded' THEN r.id END) as recordings_uploaded,
     COUNT(DISTINCT CASE WHEN r.status = 'pending' THEN r.id END) as recordings_pending
-FROM users u
-LEFT JOIN sessions s ON u.telegram_id = s.telegram_id
-LEFT JOIN recordings r ON u.telegram_id = r.telegram_id
+FROM sessions s
+LEFT JOIN sentences sen ON s.id = sen.session_id
+LEFT JOIN recordings r ON sen.id = r.sentence_id
 GROUP BY s.language;
 
 -- User stats view: for personal stats lookup by cv_user_id
@@ -142,14 +149,15 @@ SELECT
     u.cv_user_id,
     u.username,
     u.created_at as joined_at,
-    s.language as current_language,
+    (SELECT language FROM sessions WHERE telegram_id = u.telegram_id ORDER BY created_at DESC LIMIT 1) as current_language,
     COUNT(DISTINCT CASE WHEN ss.status = 'uploaded' THEN ss.sentence_id END) as total_contributions,
-    COUNT(DISTINCT CASE WHEN r.status = 'uploaded' THEN r.id END) as recordings_uploaded
+    (SELECT COUNT(*) FROM recordings r 
+     JOIN sentences sen ON r.sentence_id = sen.id 
+     JOIN sessions s ON sen.session_id = s.id 
+     WHERE s.telegram_id = u.telegram_id AND r.status = 'uploaded') as recordings_uploaded
 FROM users u
-LEFT JOIN sessions s ON u.telegram_id = s.telegram_id
 LEFT JOIN seen_sentences ss ON u.telegram_id = ss.telegram_id
-LEFT JOIN recordings r ON u.telegram_id = r.telegram_id
-GROUP BY u.cv_user_id, u.username, u.created_at, s.language;
+GROUP BY u.cv_user_id, u.username, u.created_at, u.telegram_id;
 
 -- User sentences view: for personal dashboard to show uploaded sentences
 CREATE VIEW user_sentences AS

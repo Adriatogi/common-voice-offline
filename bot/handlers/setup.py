@@ -157,9 +157,9 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     finally:
         await api_client.close()
     
-    # Save session and sentences (also marks them as seen)
-    await db.save_session(telegram_id, cv_language)
-    await db.save_sentences(telegram_id, cv_language, sentences)
+    # Create session and save sentences
+    session_id = await db.create_session(telegram_id, cv_language)
+    await db.save_sentences(session_id, sentences)
     
     # Clear setup data
     context.user_data.pop("setup_language", None)
