@@ -48,7 +48,7 @@ class Database:
             "cv_user_id": cv_user_id,
             "email": email,
             "username": username,
-            "cv_token": "active",  # Marker to indicate logged in (we use admin credentials)
+            "cv_token": "active",  # Marker to indicate logged in
             "bot_language": bot_language,
             "created_at": now,
             "updated_at": now,
@@ -65,20 +65,44 @@ class Database:
         return result.data[0] if result.data else None
 
     async def delete_user(self, telegram_id: int) -> None:
-        """Delete user and all associated data (cascades via foreign keys)."""
-        # Delete from tables without cascade first
+        """Delete user and all associated data."""
         await asyncio.to_thread(
             lambda: self.client.table("user_preferences").delete().eq("telegram_id", telegram_id).execute()
         )
-        # Delete user (cascades to sessions, sentences, recordings, seen_sentences)
         await asyncio.to_thread(
             lambda: self.client.table("users").delete().eq("telegram_id", telegram_id).execute()
         )
 
-    async def logout_user(self, telegram_id: int) -> None:
-        """Log out user by clearing token only - all data is preserved for analytics."""
+    async def logout_user(self, telegram_id: int, cv_user_id: str) -> None:
+        """Log out user by clearing token, current language, and active sentences."""
+        now = self._now()
+        
+        # Clear all active sentences for this user
         await asyncio.to_thread(
-            lambda: self.client.table("users").update({"cv_token": None}).eq("telegram_id", telegram_id).execute()
+            lambda: self.client.table("sentences")
+                .delete()
+                .eq("cv_user_id", cv_user_id)
+                .eq("status", "active")
+                .execute()
+        )
+        
+        # Clear user session
+        await asyncio.to_thread(
+            lambda: self.client.table("users").update({
+                "cv_token": None,
+                "current_language": None,
+                "updated_at": now,
+            }).eq("telegram_id", telegram_id).execute()
+        )
+
+    async def set_current_language(self, telegram_id: int, language: str) -> None:
+        """Set the current recording language for a user."""
+        now = self._now()
+        await asyncio.to_thread(
+            lambda: self.client.table("users").update({
+                "current_language": language,
+                "updated_at": now,
+            }).eq("telegram_id", telegram_id).execute()
         )
 
     # ==========================================
@@ -87,14 +111,12 @@ class Database:
 
     async def get_bot_language(self, telegram_id: int) -> str:
         """Get bot interface language for a user."""
-        # First check if user is registered
         result = await asyncio.to_thread(
             lambda: self.client.table("users").select("bot_language").eq("telegram_id", telegram_id).execute()
         )
         if result.data:
             return result.data[0]["bot_language"]
         
-        # Check preferences table for non-registered users
         result = await asyncio.to_thread(
             lambda: self.client.table("user_preferences").select("bot_language").eq("telegram_id", telegram_id).execute()
         )
@@ -107,7 +129,6 @@ class Database:
         """Set bot interface language for a user."""
         now = self._now()
         
-        # Check if user is registered
         user = await self.get_user(telegram_id)
         
         if user:
@@ -118,7 +139,6 @@ class Database:
                 }).eq("telegram_id", telegram_id).execute()
             )
         else:
-            # Store in preferences table for non-registered users
             data = {
                 "telegram_id": telegram_id,
                 "bot_language": language,
@@ -129,49 +149,32 @@ class Database:
             )
 
     # ==========================================
-    # Session operations
-    # ==========================================
-
-    async def create_session(self, telegram_id: int, language: str) -> int:
-        """Create a new session and return its ID."""
-        now = self._now()
-        data = {
-            "telegram_id": telegram_id,
-            "language": language,
-            "created_at": now,
-        }
-        result = await asyncio.to_thread(
-            lambda: self.client.table("sessions").insert(data).execute()
-        )
-        return result.data[0]["id"]
-
-    async def get_current_session(self, telegram_id: int) -> Optional[dict]:
-        """Get the most recent session for a user."""
-        result = await asyncio.to_thread(
-            lambda: self.client.table("sessions")
-                .select("*")
-                .eq("telegram_id", telegram_id)
-                .order("created_at", desc=True)
-                .limit(1)
-                .execute()
-        )
-        return result.data[0] if result.data else None
-
-    # ==========================================
     # Sentence operations
     # ==========================================
 
-    async def save_sentences(self, session_id: int, sentences: list[dict]) -> list[dict]:
-        """Save sentences for a session. Returns the inserted sentences with their IDs."""
+    async def save_sentences(self, cv_user_id: str, language: str, sentences: list[dict]) -> list[dict]:
+        """Save new sentences. Deletes ALL old active sentences first (across all languages)."""
         now = self._now()
         
+        # Delete ALL active sentences for this user (starting fresh session)
+        await asyncio.to_thread(
+            lambda: self.client.table("sentences")
+                .delete()
+                .eq("cv_user_id", cv_user_id)
+                .eq("status", "active")
+                .execute()
+        )
+        
+        # Insert new sentences
         data = [
             {
-                "session_id": session_id,
+                "cv_user_id": cv_user_id,
+                "language": language,
                 "sentence_number": i,
                 "text_id": sentence["id"],
                 "text": sentence["text"],
                 "hash": sentence["hash"],
+                "status": "active",
                 "created_at": now,
             }
             for i, sentence in enumerate(sentences, start=1)
@@ -183,13 +186,15 @@ class Database:
             return result.data
         return []
 
-    async def get_sentence_by_number(self, session_id: int, sentence_number: int) -> Optional[dict]:
-        """Get a specific sentence by number within a session."""
+    async def get_sentence_by_number(self, cv_user_id: str, language: str, sentence_number: int) -> Optional[dict]:
+        """Get an active sentence by number."""
         result = await asyncio.to_thread(
             lambda: self.client.table("sentences")
                 .select("*")
-                .eq("session_id", session_id)
+                .eq("cv_user_id", cv_user_id)
+                .eq("language", language)
                 .eq("sentence_number", sentence_number)
+                .eq("status", "active")
                 .execute()
         )
         return result.data[0] if result.data else None
@@ -204,70 +209,59 @@ class Database:
         )
         return result.data[0] if result.data else None
 
-    async def get_all_sentences(self, session_id: int) -> list[dict]:
-        """Get all sentences for a session."""
+    async def get_all_sentences(self, cv_user_id: str, language: str) -> list[dict]:
+        """Get all active sentences for a CV user in a language."""
         result = await asyncio.to_thread(
             lambda: self.client.table("sentences")
                 .select("*")
-                .eq("session_id", session_id)
+                .eq("cv_user_id", cv_user_id)
+                .eq("language", language)
+                .eq("status", "active")
                 .order("sentence_number")
                 .execute()
         )
         return result.data
 
-    async def get_sentence_count(self, session_id: int) -> int:
-        """Get count of sentences for a session."""
-        result = await asyncio.to_thread(
-            lambda: self.client.table("sentences")
-                .select("id", count="exact")
-                .eq("session_id", session_id)
-                .execute()
-        )
+    async def get_sentence_count(self, cv_user_id: str, language: str, status: str = None) -> int:
+        """Get count of sentences. If status is None, count all sentences."""
+        query = self.client.table("sentences") \
+            .select("id", count="exact") \
+            .eq("cv_user_id", cv_user_id) \
+            .eq("language", language)
+        
+        if status:
+            query = query.eq("status", status)
+        
+        result = await asyncio.to_thread(lambda: query.execute())
         return result.count or 0
 
-    async def get_seen_sentence_ids(self, telegram_id: int, language: str) -> set[str]:
-        """Get all sentence IDs this user has uploaded for a language."""
+    async def get_seen_sentence_ids(self, cv_user_id: str, language: str) -> set[str]:
+        """Get sentence IDs that have been uploaded or skipped (for deduplication)."""
         result = await asyncio.to_thread(
-            lambda: self.client.table("seen_sentences")
-                .select("sentence_id")
-                .eq("telegram_id", telegram_id)
+            lambda: self.client.table("sentences")
+                .select("text_id")
+                .eq("cv_user_id", cv_user_id)
                 .eq("language", language)
+                .in_("status", ["uploaded", "skipped"])
                 .execute()
         )
-        return {row["sentence_id"] for row in result.data}
+        return {row["text_id"] for row in result.data}
 
-    async def mark_sentence_uploaded(self, telegram_id: int, language: str, sentence_id: str, text: str) -> None:
-        """Mark a sentence as uploaded so it won't be assigned again. Saves text for dashboard."""
-        now = self._now()
-        data = {
-            "telegram_id": telegram_id,
-            "language": language,
-            "sentence_id": sentence_id,
-            "status": "uploaded",
-            "text": text,
-            "created_at": now,
-        }
-        # Use upsert with on_conflict to handle duplicates
+    async def mark_sentence_uploaded(self, sentence_id: int) -> None:
+        """Mark a sentence as uploaded."""
         await asyncio.to_thread(
-            lambda: self.client.table("seen_sentences")
-                .upsert(data, on_conflict="telegram_id,language,sentence_id")
+            lambda: self.client.table("sentences")
+                .update({"status": "uploaded"})
+                .eq("id", sentence_id)
                 .execute()
         )
 
-    async def mark_sentence_skipped(self, telegram_id: int, language: str, sentence_id: str) -> None:
-        """Mark a sentence as skipped so it won't be assigned again."""
-        now = self._now()
-        data = {
-            "telegram_id": telegram_id,
-            "language": language,
-            "sentence_id": sentence_id,
-            "status": "skipped",
-            "created_at": now,
-        }
-        # Use upsert with on_conflict to handle duplicates
+    async def mark_sentence_skipped(self, sentence_id: int) -> None:
+        """Mark a sentence as skipped."""
         await asyncio.to_thread(
-            lambda: self.client.table("seen_sentences")
-                .upsert(data, on_conflict="telegram_id,language,sentence_id")
+            lambda: self.client.table("sentences")
+                .update({"status": "skipped"})
+                .eq("id", sentence_id)
                 .execute()
         )
 
@@ -290,21 +284,6 @@ class Database:
                 .execute()
         )
 
-    async def mark_recording_skipped(self, sentence_id: int) -> None:
-        """Mark a sentence as skipped (no recording needed)."""
-        now = self._now()
-        data = {
-            "sentence_id": sentence_id,
-            "file_id": "",
-            "status": "skipped",
-            "created_at": now,
-        }
-        await asyncio.to_thread(
-            lambda: self.client.table("recordings")
-                .upsert(data, on_conflict="sentence_id")
-                .execute()
-        )
-
     async def get_recording(self, sentence_id: int) -> Optional[dict]:
         """Get recording for a sentence."""
         result = await asyncio.to_thread(
@@ -315,13 +294,14 @@ class Database:
         )
         return result.data[0] if result.data else None
 
-    async def get_pending_recordings(self, session_id: int) -> list[dict]:
-        """Get all pending recordings for a session with sentence data."""
-        # Get sentences in this session
+    async def get_pending_recordings(self, cv_user_id: str, language: str) -> list[dict]:
+        """Get all pending recordings for active sentences."""
         sentences = await asyncio.to_thread(
             lambda: self.client.table("sentences")
                 .select("*")
-                .eq("session_id", session_id)
+                .eq("cv_user_id", cv_user_id)
+                .eq("language", language)
+                .eq("status", "active")
                 .order("sentence_number")
                 .execute()
         )
@@ -329,7 +309,6 @@ class Database:
         if not sentences.data:
             return []
         
-        # Get recordings for those sentences
         sentence_ids = [s["id"] for s in sentences.data]
         recordings = await asyncio.to_thread(
             lambda: self.client.table("recordings")
@@ -339,7 +318,44 @@ class Database:
                 .execute()
         )
         
-        # Build map and result
+        recording_map = {r["sentence_id"]: r for r in recordings.data}
+        result = []
+        for s in sentences.data:
+            r = recording_map.get(s["id"])
+            if r:
+                result.append({
+                    **r,
+                    "sentence_number": s["sentence_number"],
+                    "text_id": s["text_id"],
+                    "text": s["text"],
+                    "hash": s["hash"],
+                })
+        return result
+
+    async def get_failed_recordings(self, cv_user_id: str, language: str) -> list[dict]:
+        """Get all failed recordings for active sentences."""
+        sentences = await asyncio.to_thread(
+            lambda: self.client.table("sentences")
+                .select("*")
+                .eq("cv_user_id", cv_user_id)
+                .eq("language", language)
+                .eq("status", "active")
+                .order("sentence_number")
+                .execute()
+        )
+        
+        if not sentences.data:
+            return []
+        
+        sentence_ids = [s["id"] for s in sentences.data]
+        recordings = await asyncio.to_thread(
+            lambda: self.client.table("recordings")
+                .select("*")
+                .in_("sentence_id", sentence_ids)
+                .eq("status", "failed")
+                .execute()
+        )
+        
         recording_map = {r["sentence_id"]: r for r in recordings.data}
         result = []
         for s in sentences.data:
@@ -377,44 +393,65 @@ class Database:
                 .execute()
         )
 
-    async def get_recording_stats(self, session_id: int) -> dict:
-        """Get recording statistics for a session."""
-        # Get sentences in this session
+    async def get_recording_stats(self, cv_user_id: str, language: str) -> dict:
+        """Get comprehensive stats for all sentences in this language."""
+        # Get all sentences grouped by status
         sentences = await asyncio.to_thread(
             lambda: self.client.table("sentences")
-                .select("id")
-                .eq("session_id", session_id)
+                .select("id, status")
+                .eq("cv_user_id", cv_user_id)
+                .eq("language", language)
                 .execute()
         )
         
-        stats = {"total": 0, "pending": 0, "uploaded": 0, "failed": 0, "skipped": 0}
+        stats = {
+            "total": len(sentences.data),
+            "active": 0,      # Sentences waiting to be recorded
+            "uploaded": 0,    # Sentences successfully uploaded
+            "skipped": 0,     # Sentences skipped by user
+            "pending": 0,     # Recordings waiting to upload
+            "failed": 0,      # Recordings that failed
+        }
         
         if not sentences.data:
             return stats
         
-        sentence_ids = [s["id"] for s in sentences.data]
-        recordings = await asyncio.to_thread(
-            lambda: self.client.table("recordings")
-                .select("status")
-                .in_("sentence_id", sentence_ids)
-                .execute()
-        )
+        # Count by sentence status
+        active_ids = []
+        for s in sentences.data:
+            if s["status"] == "active":
+                stats["active"] += 1
+                active_ids.append(s["id"])
+            elif s["status"] == "uploaded":
+                stats["uploaded"] += 1
+            elif s["status"] == "skipped":
+                stats["skipped"] += 1
         
-        for row in recordings.data:
-            status = row["status"]
-            if status in stats:
-                stats[status] += 1
-            stats["total"] += 1
+        # Get pending/failed recordings for active sentences
+        if active_ids:
+            recordings = await asyncio.to_thread(
+                lambda: self.client.table("recordings")
+                    .select("status")
+                    .in_("sentence_id", active_ids)
+                    .execute()
+            )
+            
+            for row in recordings.data:
+                if row["status"] == "pending":
+                    stats["pending"] += 1
+                elif row["status"] == "failed":
+                    stats["failed"] += 1
         
         return stats
 
-    async def get_failed_recordings(self, session_id: int) -> list[dict]:
-        """Get all failed recordings for a session with sentence data."""
-        # Get sentences in this session
+    async def get_all_recordings_with_sentences(self, cv_user_id: str, language: str) -> list[dict]:
+        """Get all active sentences with their recording status."""
         sentences = await asyncio.to_thread(
             lambda: self.client.table("sentences")
                 .select("*")
-                .eq("session_id", session_id)
+                .eq("cv_user_id", cv_user_id)
+                .eq("language", language)
+                .eq("status", "active")
                 .order("sentence_number")
                 .execute()
         )
@@ -422,46 +459,6 @@ class Database:
         if not sentences.data:
             return []
         
-        # Get failed recordings for those sentences
-        sentence_ids = [s["id"] for s in sentences.data]
-        recordings = await asyncio.to_thread(
-            lambda: self.client.table("recordings")
-                .select("*")
-                .in_("sentence_id", sentence_ids)
-                .eq("status", "failed")
-                .execute()
-        )
-        
-        # Build map and result
-        recording_map = {r["sentence_id"]: r for r in recordings.data}
-        result = []
-        for s in sentences.data:
-            r = recording_map.get(s["id"])
-            if r:
-                result.append({
-                    **r,
-                    "sentence_number": s["sentence_number"],
-                    "text_id": s["text_id"],
-                    "text": s["text"],
-                    "hash": s["hash"],
-                })
-        return result
-    
-    async def get_all_recordings_for_session(self, session_id: int) -> list[dict]:
-        """Get all recordings for a session with sentence data."""
-        # Get sentences in this session
-        sentences = await asyncio.to_thread(
-            lambda: self.client.table("sentences")
-                .select("*")
-                .eq("session_id", session_id)
-                .order("sentence_number")
-                .execute()
-        )
-        
-        if not sentences.data:
-            return []
-        
-        # Get all recordings for those sentences
         sentence_ids = [s["id"] for s in sentences.data]
         recordings = await asyncio.to_thread(
             lambda: self.client.table("recordings")
@@ -470,7 +467,6 @@ class Database:
                 .execute()
         )
         
-        # Build map and result
         recording_map = {r["sentence_id"]: r for r in recordings.data}
         result = []
         for s in sentences.data:
@@ -481,6 +477,6 @@ class Database:
                 "text_id": s["text_id"],
                 "text": s["text"],
                 "hash": s["hash"],
-                "recording": r,  # None if no recording yet
+                "recording": r,
             })
         return result

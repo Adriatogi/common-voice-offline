@@ -2,6 +2,7 @@
 
 import os
 import re
+import asyncio
 
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
@@ -62,38 +63,36 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(t(lang, "status_not_registered"))
         return
     
-    session = await db.get_current_session(telegram_id)
-    
-    # Stats are per-session
-    session_id = session["id"] if session else None
-    stats = await db.get_recording_stats(session_id) if session_id else {"total": 0, "pending": 0, "uploaded": 0, "failed": 0, "skipped": 0}
-    total_sentences = await db.get_sentence_count(session_id) if session_id else 0
-    
     # Check if logged out
-    is_logged_out = not user.get("cv_token")
-    
-    if is_logged_out:
+    if not user.get("cv_token"):
         await update.message.reply_text(t(lang, "status_logged_out"), parse_mode="Markdown")
         return
+    
+    cv_user_id = user["cv_user_id"]
+    current_language = user.get("current_language")
+    
+    # Get stats if user has a current language
+    if current_language:
+        stats = await db.get_recording_stats(cv_user_id, current_language)
+    else:
+        stats = {"total": 0, "active": 0, "uploaded": 0, "skipped": 0, "pending": 0, "failed": 0}
     
     # Build status message
     lines = [
         t(lang, "status_header"),
         t(lang, "status_user", username=user['username']),
-        t(lang, "status_user_id", user_id=user['cv_user_id']),
+        t(lang, "status_user_id", user_id=cv_user_id),
         t(lang, "status_email", email=user['email']),
     ]
     
-    if session:
-        lang_name = config.supported_languages.get(session['language'], session['language'])
+    if current_language:
+        lang_name = config.supported_languages.get(current_language, current_language)
         lines.append(t(lang, "status_language", language=lang_name))
-        lines.append(t(lang, "status_sentences", count=total_sentences))
+        lines.append(t(lang, "status_sentences", count=stats['total']))
         lines.append("")
-        lines.append(t(lang, "status_progress_header"))
+        lines.append(t(lang, "status_progress_header", language=lang_name))
         
-        # Calculate remaining (not recorded or skipped yet)
-        remaining = total_sentences - stats['total']
-        lines.append(t(lang, "status_progress_remaining", remaining=remaining))
+        lines.append(t(lang, "status_progress_remaining", remaining=stats['active']))
         lines.append(t(lang, "status_progress_pending", pending=stats['pending']))
         lines.append(t(lang, "status_progress_uploaded", uploaded=stats['uploaded']))
         lines.append(t(lang, "status_progress_skipped", skipped=stats['skipped']))
@@ -102,7 +101,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         if stats['pending'] > 0:
             lines.append(t(lang, "status_upload_hint"))
-        if remaining > 0:
+        if stats['active'] > 0:
             lines.append(t(lang, "status_remaining_hint"))
     else:
         lines.append(t(lang, "status_no_session"))
@@ -111,29 +110,32 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def sentences_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show sentences for the current session.
-    
-    Usage:
-        /sentences - show all sentences with status
-        /sentences left - show only unrecorded sentences
-    """
+    """Show sentences for the current session."""
     db: Database = context.bot_data["db"]
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    session = await db.get_current_session(telegram_id)
-    if not session:
+    user = await db.get_user(telegram_id)
+    if not user or not user.get("current_language"):
         await update.message.reply_text(t(lang, "sentences_no_session"))
         return
     
-    # Get all sentences with their recording status
-    sentence_data = await db.get_all_recordings_for_session(session["id"])
+    cv_user_id = user["cv_user_id"]
+    current_language = user["current_language"]
+    
+    # Get all active sentences with their recording status
+    sentence_data = await db.get_all_recordings_with_sentences(cv_user_id, current_language)
     if not sentence_data:
-        await update.message.reply_text(t(lang, "sentences_none"))
+        # Check if there are any sentences at all (uploaded/skipped)
+        total = await db.get_sentence_count(cv_user_id, current_language)
+        if total > 0:
+            await update.message.reply_text(t(lang, "sentences_all_done"))
+        else:
+            await update.message.reply_text(t(lang, "sentences_none"))
         return
     
     # Check for filter argument
-    args = update.message.text.split()[1:]  # Remove /sentences
+    args = update.message.text.split()[1:]
     show_only_left = args and args[0].lower() in ("left", "remaining", "todo")
     
     # Build recording status map
@@ -144,7 +146,7 @@ async def sentences_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if item["recording"]:
             recording_status[item["sentence_number"]] = item["recording"]["status"]
     
-    # Filter sentences if requested (exclude any with recording status)
+    # Filter sentences if requested
     if show_only_left:
         sentences = [s for s in sentences if recording_status.get(s["sentence_number"]) is None]
         if not sentences:
@@ -154,7 +156,6 @@ async def sentences_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         header = t(lang, "sentences_header", count=len(sentences))
     
-    # Send header
     await update.message.reply_text(header, parse_mode="Markdown")
     
     # Send sentences in batches
@@ -192,14 +193,16 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(t(lang, "upload_not_registered"))
         return
     
-    session = await db.get_current_session(telegram_id)
-    if not session:
+    if not user.get("current_language"):
         await update.message.reply_text(t(lang, "upload_no_session"))
         return
     
+    cv_user_id = user["cv_user_id"]
+    current_language = user["current_language"]
+    
     # Get pending and failed recordings
-    pending = await db.get_pending_recordings(session["id"])
-    failed = await db.get_failed_recordings(session["id"])
+    pending = await db.get_pending_recordings(cv_user_id, current_language)
+    failed = await db.get_failed_recordings(cv_user_id, current_language)
     all_recordings = pending + failed
     
     if not all_recordings:
@@ -210,7 +213,6 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         t(lang, "upload_starting", count=len(all_recordings))
     )
     
-    # Use admin credentials
     api_client = _get_api_client(config)
     
     success_count = 0
@@ -219,24 +221,20 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         for rec in all_recordings:
             try:
-                # Download audio from Telegram
                 audio_file = await context.bot.get_file(rec["file_id"])
                 audio_bytes = await audio_file.download_as_bytearray()
                 
-                # Upload to Common Voice
                 await api_client.upload_audio(
                     audio_data=bytes(audio_bytes),
-                    user_id=user["cv_user_id"],
-                    dataset_code=session["language"],
+                    user_id=cv_user_id,
+                    dataset_code=current_language,
                     text_id=rec["text_id"],
                     text=rec["text"],
                     text_hash=rec["hash"],
                 )
                 
                 await db.update_recording_status(rec["sentence_id"], "uploaded")
-                
-                # Mark sentence as seen so it won't be assigned again (save text for dashboard)
-                await db.mark_sentence_uploaded(telegram_id, session["language"], rec["text_id"], rec["text"])
+                await db.mark_sentence_uploaded(rec["sentence_id"])
                 
                 success_count += 1
                 
@@ -257,7 +255,6 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     finally:
         await api_client.close()
     
-    # Send summary
     if fail_count == 0:
         await update.message.reply_text(
             t(lang, "upload_success", count=success_count)
@@ -274,18 +271,20 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    session = await db.get_current_session(telegram_id)
-    if not session:
+    user = await db.get_user(telegram_id)
+    if not user or not user.get("current_language"):
         await update.message.reply_text(t(lang, "skip_no_session"))
         return
     
-    total_sentences = await db.get_sentence_count(session["id"])
+    cv_user_id = user["cv_user_id"]
+    current_language = user["current_language"]
+    
+    total_sentences = await db.get_sentence_count(cv_user_id, current_language)
     if total_sentences == 0:
         await update.message.reply_text(t(lang, "skip_no_sentences"))
         return
     
-    # Get arguments (sentence numbers)
-    args = update.message.text.split()[1:]  # Remove /skip
+    args = update.message.text.split()[1:]
     if not args:
         await update.message.reply_text(
             t(lang, "skip_usage", total=total_sentences),
@@ -293,7 +292,6 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
     
-    # Parse sentence numbers
     numbers = parse_sentence_numbers(" ".join(args), total_sentences)
     if not numbers:
         await update.message.reply_text(
@@ -301,13 +299,11 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
     
-    # Skip each sentence (mark as skipped so it won't be assigned again)
     skipped = []
     for num in numbers:
-        sentence = await db.get_sentence_by_number(session["id"], num)
+        sentence = await db.get_sentence_by_number(cv_user_id, current_language, num)
         if sentence:
-            await db.mark_sentence_skipped(telegram_id, session["language"], sentence["text_id"])
-            await db.mark_recording_skipped(sentence["id"])
+            await db.mark_sentence_skipped(sentence["id"])
             skipped.append(num)
     
     if skipped:
@@ -330,27 +326,25 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(t(lang, "logout_not_registered"))
         return
     
-    # Check if already logged out
     if not user.get("cv_token"):
         await update.message.reply_text(t(lang, "logout_already_logged_out"))
         return
     
     # Check for pending uploads
-    session = await db.get_current_session(telegram_id)
-    stats = await db.get_recording_stats(session["id"]) if session else {"pending": 0}
-    if stats["pending"] > 0:
-        # Use context to track confirmation
-        if not context.user_data.get("logout_confirmed"):
-            await update.message.reply_text(
-                t(lang, "logout_pending_warning", count=stats['pending'])
-            )
-            context.user_data["logout_confirmed"] = True
-            return
+    cv_user_id = user["cv_user_id"]
+    current_language = user.get("current_language")
     
-    # Clear session but keep user record
-    await db.logout_user(telegram_id)
+    if current_language:
+        stats = await db.get_recording_stats(cv_user_id, current_language)
+        if stats["pending"] > 0:
+            if not context.user_data.get("logout_confirmed"):
+                await update.message.reply_text(
+                    t(lang, "logout_pending_warning", count=stats['pending'])
+                )
+                context.user_data["logout_confirmed"] = True
+                return
     
-    # Clear context
+    await db.logout_user(telegram_id, cv_user_id)
     context.user_data.clear()
     
     await update.message.reply_text(t(lang, "logout_success"))
@@ -358,23 +352,23 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def resend_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Resend unrecorded sentences as individual messages for offline recording."""
-    import asyncio
-    
     db: Database = context.bot_data["db"]
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
     
-    session = await db.get_current_session(telegram_id)
-    if not session:
+    user = await db.get_user(telegram_id)
+    if not user or not user.get("current_language"):
         await update.message.reply_text(t(lang, "resend_no_session"))
         return
     
-    sentence_data = await db.get_all_recordings_for_session(session["id"])
+    cv_user_id = user["cv_user_id"]
+    current_language = user["current_language"]
+    
+    sentence_data = await db.get_all_recordings_with_sentences(cv_user_id, current_language)
     if not sentence_data:
         await update.message.reply_text(t(lang, "resend_no_sentences"))
         return
     
-    # Filter to only unrecorded sentences
     remaining = [s for s in sentence_data if not s["recording"]]
     
     if not remaining:
@@ -385,7 +379,6 @@ async def resend_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         t(lang, "resend_starting", count=len(remaining))
     )
     
-    # Send each unrecorded sentence as individual message
     for s in remaining:
         await update.message.reply_text(
             f"**#{s['sentence_number']}** {s['text']}",
@@ -399,7 +392,7 @@ async def resend_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-# Register handlers (priority 40-59: other commands)
+# Register handlers
 handler(priority=40)(CommandHandler("status", status_command))
 handler(priority=41)(CommandHandler("sentences", sentences_command))
 handler(priority=42)(CommandHandler("upload", upload_command))

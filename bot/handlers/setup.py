@@ -126,13 +126,17 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     cv_language = context.user_data.get("setup_language")
     cv_language_name = config.supported_languages[cv_language]
     
+    # Get user's CV ID
+    user = await db.get_user(telegram_id)
+    cv_user_id = user["cv_user_id"]
+    
     await update.message.reply_text(
         t(lang, "setup_fetching", count=count, language=cv_language_name),
         reply_markup=ReplyKeyboardRemove(),
     )
     
     # Get previously seen sentences to avoid duplicates
-    seen_ids = await db.get_seen_sentence_ids(telegram_id, cv_language)
+    seen_ids = await db.get_seen_sentence_ids(cv_user_id, cv_language)
     
     # Fetch sentences from API using admin credentials
     api_client = _get_api_client(config)
@@ -157,9 +161,9 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     finally:
         await api_client.close()
     
-    # Create session and save sentences
-    session_id = await db.create_session(telegram_id, cv_language)
-    await db.save_sentences(session_id, sentences)
+    # Set current language and save sentences
+    await db.set_current_language(telegram_id, cv_language)
+    await db.save_sentences(cv_user_id, cv_language, sentences)
     
     # Clear setup data
     context.user_data.pop("setup_language", None)

@@ -28,10 +28,10 @@ This bot helps you contribute voice recordings to Mozilla Common Voice, even in 
 /sentences - View your assigned sentences
 /status - Check your recording progress
 /upload - Upload pending recordings
-/skip - Skip sentences you don't want
-/clear - Clear current sentences
+/skip - Skip sentences (or reply "skip")
+/resend - Resend unrecorded sentences
 /language - Change bot language
-/logout - Clear your session
+/logout - Log out
 /help - Show this help
 
 🌐 **Change language:** /language
@@ -87,14 +87,14 @@ Ready to start? Use /login to begin!
         "status_email": "📧 Email: {email}",
         "status_language": "🌍 Language: {language}",
         "status_sentences": "📝 Sentences: {count}",
-        "status_progress_header": "**Recording Progress:**",
+        "status_progress_header": "**Progress for {language}:**",
         "status_progress_remaining": "• ⬜ Remaining: {remaining}",
         "status_progress_pending": "• 🟡 Pending upload: {pending}",
         "status_progress_uploaded": "• ✅ Uploaded: {uploaded}",
         "status_progress_skipped": "• ⏭️ Skipped: {skipped}",
         "status_progress_failed": "• ❌ Failed: {failed}",
         "status_upload_hint": "\n💡 /upload to upload pending recordings",
-        "status_remaining_hint": "💡 /sentences left to see remaining | /skip to skip | /clear to start fresh",
+        "status_remaining_hint": "💡 /sentences left to see remaining | /resend to resend",
         "status_no_session": "\n⚠️ No active session. Use /setup to select a language.",
         "status_logged_out": "⚠️ **You are logged out.** Use /login to log in.",
         
@@ -129,10 +129,6 @@ Ready to start? Use /login to begin!
         "skip_success": "⏭️ Skipped: {numbers}\n\nThese sentences won't be assigned again.",
         "skip_none_found": "No matching sentences found to skip.",
         
-        # Clear
-        "clear_no_session": "No active session to clear.",
-        "clear_pending_warning": "⚠️ You have {count} recordings pending upload!\n\nUse /upload first, or send /clear again to confirm and lose them.",
-        "clear_success": "🗑️ Session cleared!\n\nYour sentences have been removed. Use /setup to download new ones.",
         
         # Logout
         "logout_not_registered": "You're not registered.",
@@ -168,8 +164,8 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
 /sentences - Ver tus oraciones asignadas
 /status - Ver tu progreso de grabación
 /upload - Subir grabaciones pendientes
-/skip - Saltar oraciones que no quieres
-/clear - Limpiar oraciones actuales
+/skip - Saltar oraciones (o responde "saltar")
+/resend - Reenviar oraciones no grabadas
 /language - Cambiar idioma del bot
 /logout - Cerrar sesión
 /help - Mostrar esta ayuda
@@ -227,14 +223,14 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         "status_email": "📧 Email: {email}",
         "status_language": "🌍 Idioma: {language}",
         "status_sentences": "📝 Oraciones: {count}",
-        "status_progress_header": "**Progreso de Grabación:**",
+        "status_progress_header": "**Progreso en {language}:**",
         "status_progress_remaining": "• ⬜ Restantes: {remaining}",
         "status_progress_pending": "• 🟡 Pendientes de subir: {pending}",
         "status_progress_uploaded": "• ✅ Subidas: {uploaded}",
         "status_progress_skipped": "• ⏭️ Saltadas: {skipped}",
         "status_progress_failed": "• ❌ Fallidas: {failed}",
         "status_upload_hint": "\n💡 /upload para subir grabaciones pendientes",
-        "status_remaining_hint": "💡 /sentences left para ver restantes | /skip para saltar | /clear para reiniciar",
+        "status_remaining_hint": "💡 /sentences left para ver restantes | /resend para reenviar",
         "status_no_session": "\n⚠️ Sin sesión activa. Usa /setup para seleccionar un idioma.",
         "status_logged_out": "⚠️ **Has cerrado sesión.** Usa /login para iniciar sesión.",
         
@@ -268,11 +264,6 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         "skip_invalid": "No se encontraron números de oración válidos. Tienes oraciones #1-#{total}.",
         "skip_success": "⏭️ Saltadas: {numbers}\n\nEstas oraciones no se asignarán de nuevo.",
         "skip_none_found": "No se encontraron oraciones coincidentes para saltar.",
-        
-        # Clear
-        "clear_no_session": "No hay sesión activa para limpiar.",
-        "clear_pending_warning": "⚠️ ¡Tienes {count} grabaciones pendientes de subir!\n\nUsa /upload primero, o envía /clear de nuevo para confirmar y perderlas.",
-        "clear_success": "🗑️ ¡Sesión limpiada!\n\nTus oraciones han sido eliminadas. Usa /setup para descargar nuevas.",
         
         # Logout
         "logout_not_registered": "No estás registrado.",
