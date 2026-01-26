@@ -11,6 +11,7 @@ CREATE TABLE users (
     cv_user_id TEXT NOT NULL,
     email TEXT NOT NULL,
     username TEXT NOT NULL,
+    cv_token TEXT,  -- NULL means logged out
     bot_language TEXT NOT NULL DEFAULT 'en',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -55,12 +56,14 @@ CREATE TABLE user_preferences (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Seen sentences table: tracks all sentences a user has recorded to avoid duplicates
+-- Seen sentences table: tracks all sentences a user has uploaded or skipped
 CREATE TABLE seen_sentences (
     id BIGSERIAL PRIMARY KEY,
     telegram_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
     language TEXT NOT NULL,
     sentence_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'uploaded',  -- 'uploaded' or 'skipped'
+    text TEXT,  -- sentence text (only for uploaded)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (telegram_id, language, sentence_id)
 );
@@ -73,6 +76,7 @@ CREATE INDEX idx_sentences_telegram_id ON sentences(telegram_id);
 CREATE INDEX idx_recordings_telegram_id ON recordings(telegram_id);
 CREATE INDEX idx_recordings_status ON recordings(status);
 CREATE INDEX idx_seen_sentences_telegram_id_language ON seen_sentences(telegram_id, language);
+CREATE INDEX idx_seen_sentences_status ON seen_sentences(status);
 
 -- ============================================
 -- ROW LEVEL SECURITY (RLS)
@@ -139,7 +143,7 @@ SELECT
     u.username,
     u.created_at as joined_at,
     s.language as current_language,
-    COUNT(DISTINCT ss.sentence_id) as total_contributions,
+    COUNT(DISTINCT CASE WHEN ss.status = 'uploaded' THEN ss.sentence_id END) as total_contributions,
     COUNT(DISTINCT CASE WHEN r.status = 'uploaded' THEN r.id END) as recordings_uploaded
 FROM users u
 LEFT JOIN sessions s ON u.telegram_id = s.telegram_id
@@ -147,6 +151,18 @@ LEFT JOIN seen_sentences ss ON u.telegram_id = ss.telegram_id
 LEFT JOIN recordings r ON u.telegram_id = r.telegram_id
 GROUP BY u.cv_user_id, u.username, u.created_at, s.language;
 
+-- User sentences view: for personal dashboard to show uploaded sentences
+CREATE VIEW user_sentences AS
+SELECT 
+    u.cv_user_id,
+    ss.language,
+    ss.text,
+    ss.created_at as uploaded_at
+FROM users u
+JOIN seen_sentences ss ON u.telegram_id = ss.telegram_id
+WHERE ss.status = 'uploaded';
+
 -- Grant anon access to views
 GRANT SELECT ON stats_by_language TO anon;
 GRANT SELECT ON user_stats TO anon;
+GRANT SELECT ON user_sentences TO anon;

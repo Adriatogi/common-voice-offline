@@ -74,6 +74,12 @@ class Database:
             lambda: self.client.table("users").delete().eq("telegram_id", telegram_id).execute()
         )
 
+    async def logout_user(self, telegram_id: int) -> None:
+        """Log out user by clearing token only - all data is preserved for analytics."""
+        await asyncio.to_thread(
+            lambda: self.client.table("users").update({"cv_token": None}).eq("telegram_id", telegram_id).execute()
+        )
+
     # ==========================================
     # Bot language operations
     # ==========================================
@@ -232,13 +238,32 @@ class Database:
         )
         return {row["sentence_id"] for row in result.data}
 
-    async def mark_sentence_uploaded(self, telegram_id: int, language: str, sentence_id: str) -> None:
-        """Mark a sentence as uploaded (seen) so it won't be assigned again."""
+    async def mark_sentence_uploaded(self, telegram_id: int, language: str, sentence_id: str, text: str) -> None:
+        """Mark a sentence as uploaded so it won't be assigned again. Saves text for dashboard."""
         now = self._now()
         data = {
             "telegram_id": telegram_id,
             "language": language,
             "sentence_id": sentence_id,
+            "status": "uploaded",
+            "text": text,
+            "created_at": now,
+        }
+        # Use upsert with on_conflict to handle duplicates
+        await asyncio.to_thread(
+            lambda: self.client.table("seen_sentences")
+                .upsert(data, on_conflict="telegram_id,language,sentence_id")
+                .execute()
+        )
+
+    async def mark_sentence_skipped(self, telegram_id: int, language: str, sentence_id: str) -> None:
+        """Mark a sentence as skipped so it won't be assigned again."""
+        now = self._now()
+        data = {
+            "telegram_id": telegram_id,
+            "language": language,
+            "sentence_id": sentence_id,
+            "status": "skipped",
             "created_at": now,
         }
         # Use upsert with on_conflict to handle duplicates

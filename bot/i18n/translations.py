@@ -41,6 +41,7 @@ Ready to start? Use /login to begin!
         
         # Login flow
         "already_logged_in": "You're already logged in as **{username}**!\n\nUse /logout to log out first, or /setup to continue.",
+        "login_welcome_back": "Welcome back! You were previously logged in as **{username}**.\n\nEnter your **email address** to log in:\n\n(Use the same email to continue as {username}, or a different email to switch accounts)\n\nType /cancel to abort.",
         "login_start": "Let's get you set up with Common Voice!\n\nPlease enter your **email address**:\n\n(This will be used to identify your contributions)\n\nType /cancel to abort.",
         "login_invalid_email": "That doesn't look like a valid email. Please try again:",
         "login_enter_username": "Great! Now please enter a **username** for Common Voice:\n\n(This will be visible in the dataset)",
@@ -132,8 +133,9 @@ Ready to start? Use /login to begin!
         
         # Logout
         "logout_not_registered": "You're not registered.",
+        "logout_already_logged_out": "You're already logged out. Use /login to log in again.",
         "logout_pending_warning": "⚠️ You have {count} recordings pending upload!\n\nUse /upload first to upload them, or send /logout again to confirm.",
-        "logout_success": "✅ You have been logged out.\n\nYour local data has been cleared.\nUse /login to register again.",
+        "logout_success": "✅ You have been logged out.\n\nYour contribution history is preserved.\nUse /login to log back in or switch accounts.",
     },
     
     # ==========================================================================
@@ -176,6 +178,7 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         
         # Login flow
         "already_logged_in": "Ya has iniciado sesión como **{username}**.\n\nUsa /logout para cerrar sesión, o /setup para continuar.",
+        "login_welcome_back": "¡Bienvenido/a de vuelta! Anteriormente iniciaste sesión como **{username}**.\n\nIngresa tu **correo electrónico** para iniciar sesión:\n\n(Usa el mismo email para continuar como {username}, o uno diferente para cambiar de cuenta)\n\nEscribe /cancel para cancelar.",
         "login_start": "¡Vamos a configurar tu cuenta de Common Voice!\n\nPor favor, ingresa tu **correo electrónico**:\n\n(Se usará para identificar tus contribuciones)\n\nEscribe /cancel para cancelar.",
         "login_invalid_email": "Eso no parece un email válido. Por favor, intenta de nuevo:",
         "login_enter_username": "¡Genial! Ahora ingresa un **nombre de usuario** para Common Voice:\n\n(Será visible en el dataset)",
@@ -267,7 +270,8 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         
         # Logout
         "logout_not_registered": "No estás registrado.",
+        "logout_already_logged_out": "Ya has cerrado sesión. Usa /login para iniciar sesión de nuevo.",
         "logout_pending_warning": "⚠️ ¡Tienes {count} grabaciones pendientes de subir!\n\nUsa /upload primero para subirlas, o envía /logout de nuevo para confirmar.",
-        "logout_success": "✅ Has cerrado sesión.\n\nTus datos locales han sido eliminados.\nUsa /login para registrarte de nuevo.",
+        "logout_success": "✅ Has cerrado sesión.\n\nTu historial de contribuciones se ha preservado.\nUsa /login para volver a iniciar sesión o cambiar de cuenta.",
     },
 }

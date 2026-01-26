@@ -1,27 +1,33 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getUserStats } from '../lib/supabase'
+import { getUserStats, getUserSentences } from '../lib/supabase'
 import { useLanguage } from '../lib/LanguageContext'
 import { t } from '../lib/i18n'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
-import type { UserStats as UserStatsType } from '../lib/supabase'
+import type { UserStats as UserStatsType, UserSentence } from '../lib/supabase'
 
 export default function UserStats() {
   const { lang } = useLanguage()
   const { cvUserId } = useParams<{ cvUserId: string }>()
   const [stats, setStats] = useState<UserStatsType | null>(null)
+  const [sentences, setSentences] = useState<UserSentence[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
-    async function fetchUserStats() {
+    async function fetchUserData() {
       if (!cvUserId) return
 
       try {
-        const data = await getUserStats(cvUserId)
-        if (data) {
-          setStats(data)
+        const [statsData, sentencesData] = await Promise.all([
+          getUserStats(cvUserId),
+          getUserSentences(cvUserId)
+        ])
+        
+        if (statsData) {
+          setStats(statsData)
+          setSentences(sentencesData)
         } else {
           setNotFound(true)
         }
@@ -32,7 +38,7 @@ export default function UserStats() {
       }
     }
 
-    fetchUserStats()
+    fetchUserData()
   }, [cvUserId])
 
   if (loading) {
@@ -95,6 +101,25 @@ export default function UserStats() {
           </div>
         )}
       </div>
+
+      {sentences.length > 0 && (
+        <div className="sentences-section">
+          <h3>{t(lang, 'uploadedSentences')}</h3>
+          <div className="sentences-list">
+            {sentences.map((sentence, index) => (
+              <div key={index} className="sentence-item">
+                <span className="sentence-text">{sentence.text}</span>
+                <div className="sentence-meta">
+                  <span className="sentence-lang">{sentence.language}</span>
+                  <span className="sentence-date">
+                    {new Date(sentence.uploaded_at).toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US')}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="share-section">
         <h3>{t(lang, 'shareTitle')}</h3>

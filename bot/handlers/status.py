@@ -225,8 +225,8 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     telegram_id, rec["sentence_number"], "uploaded"
                 )
                 
-                # Mark sentence as seen so it won't be assigned again
-                await db.mark_sentence_uploaded(telegram_id, session["language"], rec["text_id"])
+                # Mark sentence as seen so it won't be assigned again (save text for dashboard)
+                await db.mark_sentence_uploaded(telegram_id, session["language"], rec["text_id"], rec["text"])
                 
                 success_count += 1
                 
@@ -293,12 +293,12 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
     
-    # Skip each sentence (mark as seen and create skipped recording entry)
+    # Skip each sentence (mark as skipped so it won't be assigned again)
     skipped = []
     for num in numbers:
         sentence = await db.get_sentence(telegram_id, num)
         if sentence:
-            await db.mark_sentence_uploaded(telegram_id, session["language"], sentence["text_id"])
+            await db.mark_sentence_skipped(telegram_id, session["language"], sentence["text_id"])
             await db.mark_recording_skipped(telegram_id, num)
             skipped.append(num)
     
@@ -310,36 +310,8 @@ async def skip_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(t(lang, "skip_none_found"))
 
 
-async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Clear current session sentences without logging out."""
-    db: Database = context.bot_data["db"]
-    telegram_id = update.effective_user.id
-    lang = await db.get_bot_language(telegram_id)
-    
-    session = await db.get_session(telegram_id)
-    if not session:
-        await update.message.reply_text(t(lang, "clear_no_session"))
-        return
-    
-    # Check for pending uploads
-    stats = await db.get_recording_stats(telegram_id)
-    if stats["pending"] > 0:
-        if not context.user_data.get("clear_confirmed"):
-            await update.message.reply_text(
-                t(lang, "clear_pending_warning", count=stats['pending'])
-            )
-            context.user_data["clear_confirmed"] = True
-            return
-    
-    # Clear session (deletes sentences and recordings but keeps user)
-    await db.delete_session(telegram_id)
-    context.user_data.pop("clear_confirmed", None)
-    
-    await update.message.reply_text(t(lang, "clear_success"))
-
-
 async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log out and clear all user data."""
+    """Log out and clear session data (keeps user record for history)."""
     db: Database = context.bot_data["db"]
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
@@ -348,6 +320,11 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     if not user:
         await update.message.reply_text(t(lang, "logout_not_registered"))
+        return
+    
+    # Check if already logged out
+    if not user.get("cv_token"):
+        await update.message.reply_text(t(lang, "logout_already_logged_out"))
         return
     
     # Check for pending uploads
@@ -361,8 +338,8 @@ async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             context.user_data["logout_confirmed"] = True
             return
     
-    # Clear all user data
-    await db.delete_user(telegram_id)
+    # Clear session but keep user record
+    await db.logout_user(telegram_id)
     
     # Clear context
     context.user_data.clear()
@@ -422,6 +399,5 @@ handler(priority=40)(CommandHandler("status", status_command))
 handler(priority=41)(CommandHandler("sentences", sentences_command))
 handler(priority=42)(CommandHandler("upload", upload_command))
 handler(priority=43)(CommandHandler("skip", skip_command))
-handler(priority=44)(CommandHandler("clear", clear_command))
 handler(priority=45)(CommandHandler("resend", resend_command))
 handler(priority=46)(CommandHandler("logout", logout_command))

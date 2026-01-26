@@ -47,6 +47,16 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # Check if already logged in
     user = await db.get_user(telegram_id)
     if user:
+        # Check if logged out (no token)
+        if not user.get("cv_token"):
+            # User logged out - allow re-login
+            await update.message.reply_text(
+                t(lang, "login_welcome_back", username=user['username']),
+                parse_mode="Markdown",
+            )
+            return EMAIL
+        
+        # User is actively logged in
         await update.message.reply_text(
             t(lang, "already_logged_in", username=user['username']),
             parse_mode="Markdown",

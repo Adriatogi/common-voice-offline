@@ -191,8 +191,8 @@ async def attempt_upload(
             # Mark as uploaded
             await db.update_recording_status(telegram_id, sentence_number, "uploaded")
             
-            # Mark sentence as seen so it won't be assigned again
-            await db.mark_sentence_uploaded(telegram_id, session["language"], sentence["text_id"])
+            # Mark sentence as seen so it won't be assigned again (save text for dashboard)
+            await db.mark_sentence_uploaded(telegram_id, session["language"], sentence["text_id"], sentence["text"])
             
             await update.message.reply_text(
                 t(lang, "record_uploaded", number=sentence_number)
