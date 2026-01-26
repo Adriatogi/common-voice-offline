@@ -9,7 +9,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/stats/:cvUserId" element={<UserStats />} />
+          <Route path="/stats/*" element={<UserStats />} />
         </Routes>
       </BrowserRouter>
     </LanguageProvider>

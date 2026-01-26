@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { getUserStats, getUserSentences } from '../utils/supabase'
 import { useLanguage } from '../utils/LanguageContext'
 import { t } from '../utils/i18n'
@@ -8,31 +8,41 @@ import type { UserStats as UserStatsType, UserSentence } from '../utils/supabase
 
 export default function UserStats() {
   const { lang } = useLanguage()
-  const { cvUserId } = useParams<{ cvUserId: string }>()
+  const location = useLocation()
+  // Extract cvUserId from path (everything after /stats/)
+  const cvUserId = location.pathname.replace('/stats/', '') || undefined
   const [stats, setStats] = useState<UserStatsType | null>(null)
   const [sentences, setSentences] = useState<UserSentence[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
     async function fetchUserData() {
-      if (!cvUserId) return
+      if (!cvUserId) {
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
 
       try {
-        const [statsData, sentencesData] = await Promise.all([
-          getUserStats(cvUserId),
-          getUserSentences(cvUserId)
-        ])
+        const statsData = await getUserStats(cvUserId)
         
         if (statsData) {
           setStats(statsData)
-          setSentences(sentencesData)
+          // Sentences are optional - don't fail if this errors
+          try {
+            const sentencesData = await getUserSentences(cvUserId)
+            setSentences(sentencesData)
+          } catch {
+            // Ignore sentence fetch errors
+          }
         } else {
           setNotFound(true)
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load stats')
+        // If we can't find the user, show not found instead of error
+        console.error('Error fetching user:', err)
+        setNotFound(true)
       } finally {
         setLoading(false)
       }
@@ -43,16 +53,6 @@ export default function UserStats() {
 
   if (loading) {
     return <div className="container"><div className="loading">{t(lang, 'loading')}</div></div>
-  }
-
-  if (error) {
-    return (
-      <div className="container">
-        <LanguageSwitcher />
-        <Link to="/" className="back-link">{t(lang, 'back')}</Link>
-        <div className="error">{t(lang, 'error')}: {error}</div>
-      </div>
-    )
   }
 
   if (notFound) {
