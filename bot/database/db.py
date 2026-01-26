@@ -39,7 +39,7 @@ class Database:
         cv_user_id: str,
         email: str,
         username: str,
-        bot_language: str = "en",
+        bot_language: str = "es",
     ) -> None:
         """Save or update user and mark as logged in."""
         now = self._now()
@@ -101,7 +101,7 @@ class Database:
         if result.data:
             return result.data[0]["bot_language"]
         
-        return "en"  # Default to English
+        return "es"  # Default to Spanish
 
     async def set_bot_language(self, telegram_id: int, language: str) -> None:
         """Set bot interface language for a user."""

@@ -3,7 +3,7 @@
 from bot.i18n.translations import TRANSLATIONS
 
 # Default language
-DEFAULT_LANG = "en"
+DEFAULT_LANG = "es"
 
 # Supported bot interface languages (not the same as Common Voice languages)
 BOT_LANGUAGES = {
