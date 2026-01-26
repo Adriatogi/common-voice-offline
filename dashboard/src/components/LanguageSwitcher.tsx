@@ -1,5 +1,4 @@
 import { useLanguage } from '../lib/LanguageContext'
-import type { Language } from '../lib/i18n'
 
 export function LanguageSwitcher() {
   const { lang, setLang } = useLanguage()
