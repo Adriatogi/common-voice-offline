@@ -56,12 +56,13 @@ export async function getUserStats(cvUserId: string): Promise<UserStats | null> 
     throw userError
   }
   
-  // Get stats from user_stats view
-  const { data: stats } = await supabase
+  // Get stats from user_stats view (may not exist if no uploads yet)
+  const { data: statsData } = await supabase
     .from('user_stats')
     .select('total_contributions, languages_contributed')
     .eq('cv_user_id', cvUserId)
-    .single()
+  
+  const stats = statsData?.[0]
   
   return {
     cv_user_id: user.cv_user_id,
