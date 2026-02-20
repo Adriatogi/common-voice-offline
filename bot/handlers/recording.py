@@ -236,6 +236,8 @@ async def attempt_upload(
                 text_id=sentence["text_id"],
                 text=sentence["text"],
                 text_hash=sentence["hash"],
+                age=user.get("age"),
+                gender=user.get("gender"),
             )
             
             # Mark as uploaded

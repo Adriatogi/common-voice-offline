@@ -105,6 +105,22 @@ class Database:
             }).eq("telegram_id", telegram_id).execute()
         )
 
+    async def update_user_demographics(
+        self,
+        telegram_id: int,
+        age: Optional[str],
+        gender: Optional[str],
+    ) -> None:
+        """Update user's demographic info (age and gender)."""
+        now = self._now()
+        await asyncio.to_thread(
+            lambda: self.client.table("users").update({
+                "age": age,
+                "gender": gender,
+                "updated_at": now,
+            }).eq("telegram_id", telegram_id).execute()
+        )
+
     # ==========================================
     # Bot language operations
     # ==========================================

@@ -20,7 +20,28 @@ from bot.handlers.registry import handler
 
 
 # Conversation states
-LANGUAGE, SENTENCE_COUNT = range(2)
+LANGUAGE, AGE, GENDER, SENTENCE_COUNT = range(4)
+
+# Age range options (API value -> translation key)
+AGE_OPTIONS = [
+    ("teens", "age_teens"),
+    ("twenties", "age_twenties"),
+    ("thirties", "age_thirties"),
+    ("forties", "age_forties"),
+    ("fifties", "age_fifties"),
+    ("sixties", "age_sixties"),
+    ("seventies", "age_seventies"),
+    ("eighties", "age_eighties"),
+    ("nineties", "age_nineties"),
+]
+
+# Gender options (API value -> translation key)
+GENDER_OPTIONS = [
+    ("male_masculine", "gender_male"),
+    ("female_feminine", "gender_female"),
+    ("'non-binary'", "gender_non_binary"),  # API requires quotes
+    ("do_not_wish_to_say", "gender_prefer_not"),
+]
 
 
 def _get_api_client(config: Config) -> CVAPIClient:
@@ -89,7 +110,99 @@ async def receive_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     context.user_data["setup_language"] = selected_code
     
-    # Create keyboard with sentence count options
+    # Show age selection keyboard
+    keyboard = [[t(lang, key)] for _, key in AGE_OPTIONS]
+    keyboard.append([t(lang, "setup_skip")])
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        t(lang, "setup_select_age"),
+        reply_markup=reply_markup,
+        parse_mode="Markdown",
+    )
+    return AGE
+
+
+async def receive_age(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive age selection."""
+    db: Database = context.bot_data["db"]
+    lang = await db.get_bot_language(update.effective_user.id)
+    
+    text = update.message.text.strip()
+    
+    # Check if user skipped
+    if text == t(lang, "setup_skip"):
+        context.user_data["setup_age"] = None
+    else:
+        # Find matching age option
+        selected_age = None
+        for api_value, key in AGE_OPTIONS:
+            if text == t(lang, key):
+                selected_age = api_value
+                break
+        
+        if selected_age is None:
+            # Invalid selection, show keyboard again
+            keyboard = [[t(lang, key)] for _, key in AGE_OPTIONS]
+            keyboard.append([t(lang, "setup_skip")])
+            reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            await update.message.reply_text(
+                t(lang, "setup_select_age"),
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )
+            return AGE
+        
+        context.user_data["setup_age"] = selected_age
+    
+    # Show gender selection keyboard
+    keyboard = [[t(lang, key)] for _, key in GENDER_OPTIONS]
+    keyboard.append([t(lang, "setup_skip")])
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        t(lang, "setup_select_gender"),
+        reply_markup=reply_markup,
+        parse_mode="Markdown",
+    )
+    return GENDER
+
+
+async def receive_gender(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receive gender selection."""
+    config: Config = context.bot_data["config"]
+    db: Database = context.bot_data["db"]
+    lang = await db.get_bot_language(update.effective_user.id)
+    
+    text = update.message.text.strip()
+    
+    # Check if user skipped
+    if text == t(lang, "setup_skip"):
+        context.user_data["setup_gender"] = None
+    else:
+        # Find matching gender option
+        selected_gender = None
+        for api_value, key in GENDER_OPTIONS:
+            if text == t(lang, key):
+                selected_gender = api_value
+                break
+        
+        if selected_gender is None:
+            # Invalid selection, show keyboard again
+            keyboard = [[t(lang, key)] for _, key in GENDER_OPTIONS]
+            keyboard.append([t(lang, "setup_skip")])
+            reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            await update.message.reply_text(
+                t(lang, "setup_select_gender"),
+                reply_markup=reply_markup,
+                parse_mode="Markdown",
+            )
+            return GENDER
+        
+        context.user_data["setup_gender"] = selected_gender
+    
+    # Show sentence count selection
+    selected_code = context.user_data.get("setup_language")
     counts = ["10", "25", "50", "100"]
     keyboard = [[c for c in counts]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
@@ -161,12 +274,17 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     finally:
         await api_client.close()
     
-    # Set current language and save sentences
+    # Save demographics and set current language
+    setup_age = context.user_data.get("setup_age")
+    setup_gender = context.user_data.get("setup_gender")
+    await db.update_user_demographics(telegram_id, setup_age, setup_gender)
     await db.set_current_language(telegram_id, cv_language)
     await db.save_sentences(cv_user_id, cv_language, sentences)
     
     # Clear setup data
     context.user_data.pop("setup_language", None)
+    context.user_data.pop("setup_age", None)
+    context.user_data.pop("setup_gender", None)
     
     # Send sentences to user
     await update.message.reply_text(
@@ -197,6 +315,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     lang = await db.get_bot_language(update.effective_user.id)
     
     context.user_data.pop("setup_language", None)
+    context.user_data.pop("setup_age", None)
+    context.user_data.pop("setup_gender", None)
     
     await update.message.reply_text(
         t(lang, "setup_cancelled"),
@@ -211,6 +331,8 @@ handler(priority=21)(
         entry_points=[CommandHandler("setup", setup_command)],
         states={
             LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_language)],
+            AGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_age)],
+            GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_gender)],
             SENTENCE_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_sentence_count)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],

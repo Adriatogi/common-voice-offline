@@ -14,6 +14,8 @@ CREATE TABLE users (
     cv_token TEXT,  -- NULL means logged out
     current_language TEXT,  -- Current recording language (set by /setup)
     bot_language TEXT NOT NULL DEFAULT 'es',
+    age TEXT,  -- Age range for CV uploads (e.g., 'twenties', 'thirties')
+    gender TEXT,  -- Gender for CV uploads (e.g., 'male_masculine', 'female_feminine')
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

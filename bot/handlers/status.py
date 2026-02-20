@@ -231,6 +231,8 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     text_id=rec["text_id"],
                     text=rec["text"],
                     text_hash=rec["hash"],
+                    age=user.get("age"),
+                    gender=user.get("gender"),
                 )
                 
                 await db.update_recording_status(rec["sentence_id"], "uploaded")

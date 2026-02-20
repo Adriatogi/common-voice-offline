@@ -65,6 +65,24 @@ Ready to start? Use /login to begin!
         "setup_all_sent": "📝 **All sentences sent!**\n\n**To record (works offline!):**\nReply to any sentence above with a voice message.\n\nRecordings upload automatically when online.\nUse /status to check progress.",
         "setup_cancelled": "Setup cancelled. Use /setup to try again.",
         
+        # Demographics (age/gender)
+        "setup_select_age": "What is your **age range**? (Optional - helps improve voice recognition)",
+        "setup_select_gender": "What is your **gender**? (Optional - helps improve voice recognition)",
+        "setup_skip": "⏭️ Skip",
+        "age_teens": "18-19",
+        "age_twenties": "20-29",
+        "age_thirties": "30-39",
+        "age_forties": "40-49",
+        "age_fifties": "50-59",
+        "age_sixties": "60-69",
+        "age_seventies": "70-79",
+        "age_eighties": "80-89",
+        "age_nineties": "90+",
+        "gender_male": "Male",
+        "gender_female": "Female",
+        "gender_non_binary": "Non-binary",
+        "gender_prefer_not": "Prefer not to say",
+        
         # Unknown message / command
         "unknown_message": "I don't understand that message. 🤔\n\nUse /help to see available commands.",
         "unknown_command": "Unknown command. 🤔\n\nUse /help to see available commands.",
@@ -200,6 +218,24 @@ Este bot te ayuda a contribuir grabaciones de voz a Mozilla Common Voice, inclus
         "setup_complete": "✅ **¡{count} oraciones descargadas!**\n\nEnviándolas ahora como mensajes individuales...",
         "setup_all_sent": "📝 **¡Todas las oraciones enviadas!**\n\n**Para grabar (¡funciona offline!):**\nResponde a cualquier oración arriba con un mensaje de voz.\n\nLas grabaciones se suben automáticamente cuando estés online.\nUsa /status para ver tu progreso.",
         "setup_cancelled": "Configuración cancelada. Usa /setup para intentar de nuevo.",
+        
+        # Demographics (age/gender)
+        "setup_select_age": "¿Cuál es tu **rango de edad**? (Opcional - ayuda a mejorar el reconocimiento de voz)",
+        "setup_select_gender": "¿Cuál es tu **género**? (Opcional - ayuda a mejorar el reconocimiento de voz)",
+        "setup_skip": "⏭️ Saltar",
+        "age_teens": "18-19",
+        "age_twenties": "20-29",
+        "age_thirties": "30-39",
+        "age_forties": "40-49",
+        "age_fifties": "50-59",
+        "age_sixties": "60-69",
+        "age_seventies": "70-79",
+        "age_eighties": "80-89",
+        "age_nineties": "90+",
+        "gender_male": "Masculino",
+        "gender_female": "Femenino",
+        "gender_non_binary": "No binario",
+        "gender_prefer_not": "Prefiero no decir",
         
         # Unknown message / command
         "unknown_message": "No entiendo ese mensaje. 🤔\n\nUsa /help para ver los comandos disponibles.",
