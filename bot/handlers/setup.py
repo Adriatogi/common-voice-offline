@@ -2,6 +2,7 @@
 
 import os
 import asyncio
+import logging
 
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
@@ -18,6 +19,7 @@ from bot.services.cv_api import CVAPIClient, CVAPIError
 from bot.i18n import t
 from bot.handlers.registry import handler
 
+logger = logging.getLogger(__name__)
 
 # Conversation states
 LANGUAGE, AGE, GENDER, SENTENCE_COUNT = range(4)
@@ -274,10 +276,15 @@ async def receive_sentence_count(update: Update, context: ContextTypes.DEFAULT_T
     finally:
         await api_client.close()
     
-    # Save demographics and set current language
+    # Save demographics (non-critical - don't fail setup if this errors)
     setup_age = context.user_data.get("setup_age")
     setup_gender = context.user_data.get("setup_gender")
-    await db.update_user_demographics(telegram_id, setup_age, setup_gender)
+    try:
+        await db.update_user_demographics(telegram_id, setup_age, setup_gender)
+    except Exception as e:
+        logger.warning(f"Failed to save demographics for {telegram_id}: {e}")
+    
+    # Set current language and save sentences
     await db.set_current_language(telegram_id, cv_language)
     await db.save_sentences(cv_user_id, cv_language, sentences)
     
