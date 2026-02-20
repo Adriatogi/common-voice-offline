@@ -94,6 +94,12 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(t(lang, "login_invalid_username"))
         return USERNAME
     
+    # Check if username is already taken
+    existing_username = await db.get_user_by_username(username)
+    if existing_username:
+        await update.message.reply_text(t(lang, "login_username_taken"))
+        return USERNAME
+    
     email = context.user_data.get("temp_email")
     
     # Check if user already exists in our database

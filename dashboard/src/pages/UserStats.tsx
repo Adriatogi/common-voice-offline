@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { getUserStats, getUserSentences } from '../utils/supabase'
+import { getUserStats, getUserSentences, isUUID } from '../utils/supabase'
 import { useLanguage } from '../utils/LanguageContext'
 import { t } from '../utils/i18n'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
@@ -9,8 +9,8 @@ import type { UserStats as UserStatsType, UserSentence } from '../utils/supabase
 export default function UserStats() {
   const { lang } = useLanguage()
   const location = useLocation()
-  // Extract cvUserId from path (everything after /stats/)
-  const cvUserId = location.pathname.replace('/stats/', '') || undefined
+  // Extract search value from path (everything after /stats/)
+  const searchValue = decodeURIComponent(location.pathname.replace('/stats/', '')) || undefined
   const [stats, setStats] = useState<UserStatsType | null>(null)
   const [sentences, setSentences] = useState<UserSentence[]>([])
   const [loading, setLoading] = useState(true)
@@ -18,20 +18,22 @@ export default function UserStats() {
 
   useEffect(() => {
     async function fetchUserData() {
-      if (!cvUserId) {
+      if (!searchValue) {
         setNotFound(true)
         setLoading(false)
         return
       }
 
       try {
-        const statsData = await getUserStats(cvUserId)
+        // Auto-detect: UUID searches by cv_user_id, otherwise by username
+        const searchField = isUUID(searchValue) ? 'cv_user_id' : 'username'
+        const statsData = await getUserStats(searchValue, searchField)
         
         if (statsData) {
           setStats(statsData)
           // Sentences are optional - don't fail if this errors
           try {
-            const sentencesData = await getUserSentences(cvUserId)
+            const sentencesData = await getUserSentences(statsData.cv_user_id)
             setSentences(sentencesData)
           } catch {
             // Ignore sentence fetch errors
@@ -49,7 +51,7 @@ export default function UserStats() {
     }
 
     fetchUserData()
-  }, [cvUserId])
+  }, [searchValue])
 
   if (loading) {
     return <div className="container"><div className="loading">{t(lang, 'loading')}</div></div>
@@ -62,7 +64,7 @@ export default function UserStats() {
         <Link to="/" className="back-link">{t(lang, 'back')}</Link>
         <div className="not-found">
           <h2>{t(lang, 'userNotFound')}</h2>
-          <p>{t(lang, 'userNotFoundDesc')} <code>{cvUserId}</code></p>
+          <p>{t(lang, 'userNotFoundDesc')} <code>{searchValue}</code></p>
           <p style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#666' }}>
             {t(lang, 'userNotFoundHint')}
           </p>

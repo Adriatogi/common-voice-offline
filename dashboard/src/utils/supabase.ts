@@ -14,14 +14,12 @@ export interface LanguageStats {
   language: string
   contributors: number
   recordings_uploaded: number
-  recordings_pending: number
 }
 
 export interface UserStats {
   cv_user_id: string
   username: string
   joined_at: string
-  current_language: string | null
   total_contributions: number
   languages_contributed: number
 }
@@ -43,18 +41,25 @@ export async function getStatsByLanguage(): Promise<LanguageStats[]> {
   return data || []
 }
 
-export async function getUserStats(cvUserId: string): Promise<UserStats | null> {
-  // Get user info from users table
+// Check if string looks like a UUID
+export function isUUID(str: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+}
+
+export async function getUserStats(searchValue: string, searchField: 'cv_user_id' | 'username' = 'cv_user_id'): Promise<UserStats | null> {
+  // Get user info from public_users view (no sensitive data)
   const { data: user, error: userError } = await supabase
-    .from('users')
-    .select('cv_user_id, username, current_language, created_at')
-    .eq('cv_user_id', cvUserId)
+    .from('public_users')
+    .select('cv_user_id, username, created_at')
+    .eq(searchField, searchValue)
     .single()
   
   if (userError) {
     if (userError.code === 'PGRST116') return null // Not found
     throw userError
   }
+  
+  const cvUserId = user.cv_user_id
   
   // Get stats from user_stats view (may not exist if no uploads yet)
   const { data: statsData } = await supabase
@@ -68,7 +73,6 @@ export async function getUserStats(cvUserId: string): Promise<UserStats | null> 
     cv_user_id: user.cv_user_id,
     username: user.username,
     joined_at: user.created_at,
-    current_language: user.current_language,
     total_contributions: stats?.total_contributions ?? 0,
     languages_contributed: stats?.languages_contributed ?? 0,
   }
@@ -86,20 +90,23 @@ export async function getUserSentences(cvUserId: string): Promise<UserSentence[]
 }
 
 export async function getTotalStats() {
-  const { data: users, error: usersError } = await supabase
-    .from('users')
-    .select('id', { count: 'exact', head: true })
+  // Get user count from public_users view
+  const { count: userCount, error: usersError } = await supabase
+    .from('public_users')
+    .select('*', { count: 'exact', head: true })
   
-  const { data: recordings, error: recordingsError } = await supabase
-    .from('recordings')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'uploaded')
+  // Get recordings count from stats_by_language (no direct table access)
+  const { data: langStats, error: statsError } = await supabase
+    .from('stats_by_language')
+    .select('recordings_uploaded')
   
   if (usersError) throw usersError
-  if (recordingsError) throw recordingsError
+  if (statsError) throw statsError
+  
+  const totalRecordings = (langStats || []).reduce((sum, s) => sum + s.recordings_uploaded, 0)
   
   return {
-    totalContributors: users?.length ?? 0,
-    totalRecordings: recordings?.length ?? 0,
+    totalContributors: userCount ?? 0,
+    totalRecordings,
   }
 }

@@ -56,6 +56,7 @@ CREATE TABLE user_preferences (
 -- INDEXES
 -- ============================================
 
+CREATE UNIQUE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_sentences_cv_user_id ON sentences(cv_user_id);
 CREATE INDEX idx_sentences_cv_user_language ON sentences(cv_user_id, language);
 CREATE INDEX idx_sentences_status ON sentences(status);
@@ -71,22 +72,27 @@ ALTER TABLE sentences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recordings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
 
--- Anon can read for dashboard
-CREATE POLICY "Allow anon to read users" ON users FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon to read sentences" ON sentences FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon to read recordings" ON recordings FOR SELECT TO anon USING (true);
+-- No direct table access for anon - all public access goes through views
+-- Service role (bot) bypasses RLS and has full access
 
 -- ============================================
 -- VIEWS (for dashboard)
 -- ============================================
 
--- Aggregate stats by language
+-- Public user info (safe columns only - no tokens, emails, or telegram_id)
+CREATE VIEW public_users AS
+SELECT 
+    cv_user_id,
+    username,
+    created_at
+FROM users;
+
+-- Aggregate stats by language (only counts successful uploads)
 CREATE VIEW stats_by_language AS
 SELECT 
     language,
-    COUNT(DISTINCT cv_user_id) as contributors,
-    COUNT(*) FILTER (WHERE status = 'uploaded') as recordings_uploaded,
-    COUNT(*) FILTER (WHERE status = 'active') as recordings_pending
+    COUNT(DISTINCT cv_user_id) FILTER (WHERE status = 'uploaded') as contributors,
+    COUNT(*) FILTER (WHERE status = 'uploaded') as recordings_uploaded
 FROM sentences
 GROUP BY language;
 
@@ -109,7 +115,8 @@ SELECT
 FROM sentences
 WHERE status = 'uploaded';
 
--- Grant anon access to views
+-- Grant anon access to views (safe, limited data only)
+GRANT SELECT ON public_users TO anon;
 GRANT SELECT ON stats_by_language TO anon;
 GRANT SELECT ON user_stats TO anon;
 GRANT SELECT ON user_sentences TO anon;

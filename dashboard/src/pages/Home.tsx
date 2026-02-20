@@ -18,23 +18,20 @@ export default function Home() {
       try {
         const languageStats = await getStatsByLanguage()
         const filteredStats = languageStats.filter(s => s.language)
-        filteredStats.sort((a, b) => 
-          (b.recordings_uploaded + b.recordings_pending) - (a.recordings_uploaded + a.recordings_pending)
-        )
+        filteredStats.sort((a, b) => b.recordings_uploaded - a.recordings_uploaded)
         setStats(filteredStats)
 
+        // Use public_users view (no sensitive data access)
         const { count: userCount } = await supabase
-          .from('users')
+          .from('public_users')
           .select('*', { count: 'exact', head: true })
 
-        const { count: recordingCount } = await supabase
-          .from('recordings')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'uploaded')
+        // Calculate recordings from stats (no direct table access)
+        const totalRecordings = filteredStats.reduce((sum, s) => sum + s.recordings_uploaded, 0)
 
         setTotals({
           contributors: userCount || 0,
-          recordings: recordingCount || 0,
+          recordings: totalRecordings,
           languages: filteredStats.length,
         })
       } catch (err) {
@@ -63,7 +60,6 @@ export default function Home() {
   }
 
   const totalUploaded = stats.reduce((sum, s) => sum + s.recordings_uploaded, 0)
-  const totalPending = stats.reduce((sum, s) => sum + s.recordings_pending, 0)
   const totalContributors = stats.reduce((sum, s) => sum + s.contributors, 0)
 
   return (
@@ -117,8 +113,6 @@ export default function Home() {
                 <th>{t(lang, 'tableLanguage')}</th>
                 <th>{t(lang, 'tableContributors')}</th>
                 <th>{t(lang, 'tableUploaded')}</th>
-                <th>{t(lang, 'tablePending')}</th>
-                <th>{t(lang, 'tableTotal')}</th>
               </tr>
             </thead>
             <tbody>
@@ -130,8 +124,6 @@ export default function Home() {
                   <td style={{ fontWeight: 500 }}>{stat.language}</td>
                   <td>{stat.contributors}</td>
                   <td>{stat.recordings_uploaded}</td>
-                  <td>{stat.recordings_pending}</td>
-                  <td style={{ fontWeight: 500 }}>{stat.recordings_uploaded + stat.recordings_pending}</td>
                 </tr>
               ))}
               {stats.length > 1 && (
@@ -140,8 +132,6 @@ export default function Home() {
                   <td>{t(lang, 'tableTotal')}</td>
                   <td>{totalContributors}</td>
                   <td>{totalUploaded}</td>
-                  <td>{totalPending}</td>
-                  <td>{totalUploaded + totalPending}</td>
                 </tr>
               )}
             </tbody>
