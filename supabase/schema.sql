@@ -8,15 +8,16 @@
 -- TABLES
 -- ============================================
 
--- Users table: maps telegram users to their current CV account
+-- Users table: each row is a CV account. A telegram_id can own multiple
+-- accounts but only one is active (cv_token = 'active') at a time.
 CREATE TABLE users (
-    telegram_id BIGINT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
+    telegram_id BIGINT NOT NULL,
     cv_user_id TEXT NOT NULL,
     email TEXT NOT NULL,
     username TEXT NOT NULL,
-    cv_token TEXT,  -- NULL means logged out
+    cv_token TEXT,  -- 'active' = logged in, NULL = inactive/logged out
     current_language TEXT,  -- Current recording language (set by /setup)
-    bot_language TEXT NOT NULL DEFAULT 'es',
     age TEXT,  -- Age range for CV uploads (e.g., 'twenties', 'thirties')
     gender TEXT,  -- Gender for CV uploads (e.g., 'male_masculine', 'female_feminine')
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -61,6 +62,7 @@ CREATE TABLE user_preferences (
 -- ============================================
 
 CREATE UNIQUE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX idx_sentences_cv_user_id ON sentences(cv_user_id);
 CREATE INDEX idx_sentences_cv_user_language ON sentences(cv_user_id, language);
 CREATE INDEX idx_sentences_status ON sentences(status);

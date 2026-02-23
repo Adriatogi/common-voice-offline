@@ -114,16 +114,11 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         await update.message.reply_text(t(lang, "login_logging_in"))
 
-        # If a different telegram_id holds this username, free the row first
-        if existing_account["telegram_id"] != telegram_id:
-            await db.release_username(username)
-
         await db.save_user(
             telegram_id=telegram_id,
             email=email,
             username=username,
             cv_user_id=cv_user_id,
-            bot_language=lang,
         )
 
         context.user_data.pop("temp_email", None)
@@ -157,7 +152,6 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         email=email,
         username=username,
         cv_user_id=cv_user_id,
-        bot_language=lang,
     )
 
     context.user_data.pop("temp_email", None)

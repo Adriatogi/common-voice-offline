@@ -39,28 +39,39 @@ class Database:
         cv_user_id: str,
         email: str,
         username: str,
-        bot_language: str = "es",
     ) -> None:
-        """Save or update user and mark as logged in."""
+        """Save or update a CV account and mark it as the active account for this telegram_id."""
         now = self._now()
+
+        # Deactivate any currently active account for this telegram_id
+        await asyncio.to_thread(
+            lambda: self.client.table("users").update({
+                "cv_token": None,
+                "current_language": None,
+                "updated_at": now,
+            }).eq("telegram_id", telegram_id).eq("cv_token", "active").execute()
+        )
+
+        # Upsert the account (keyed by username). created_at is left to DB default on insert.
         data = {
             "telegram_id": telegram_id,
             "cv_user_id": cv_user_id,
             "email": email,
             "username": username,
-            "cv_token": "active",  # Marker to indicate logged in
-            "bot_language": bot_language,
-            "created_at": now,
+            "cv_token": "active",
             "updated_at": now,
         }
         await asyncio.to_thread(
-            lambda: self.client.table("users").upsert(data, on_conflict="telegram_id").execute()
+            lambda: self.client.table("users").upsert(data, on_conflict="username").execute()
         )
 
     async def get_user(self, telegram_id: int) -> Optional[dict]:
-        """Get user by telegram ID."""
+        """Get the active account for a telegram ID."""
         result = await asyncio.to_thread(
-            lambda: self.client.table("users").select("*").eq("telegram_id", telegram_id).execute()
+            lambda: self.client.table("users").select("*")
+                .eq("telegram_id", telegram_id)
+                .eq("cv_token", "active")
+                .execute()
         )
         return result.data[0] if result.data else None
 
@@ -74,14 +85,8 @@ class Database:
         )
         return result.data[0] if result.data else None
 
-    async def release_username(self, username: str) -> None:
-        """Delete the users row holding this username, freeing it for reassignment."""
-        await asyncio.to_thread(
-            lambda: self.client.table("users").delete().eq("username", username).execute()
-        )
-
     async def delete_user(self, telegram_id: int) -> None:
-        """Delete user and all associated data."""
+        """Delete all accounts for a telegram ID and their preferences."""
         await asyncio.to_thread(
             lambda: self.client.table("user_preferences").delete().eq("telegram_id", telegram_id).execute()
         )
@@ -102,23 +107,23 @@ class Database:
                 .execute()
         )
         
-        # Clear user session
+        # Clear active account session
         await asyncio.to_thread(
             lambda: self.client.table("users").update({
                 "cv_token": None,
                 "current_language": None,
                 "updated_at": now,
-            }).eq("telegram_id", telegram_id).execute()
+            }).eq("telegram_id", telegram_id).eq("cv_token", "active").execute()
         )
 
     async def set_current_language(self, telegram_id: int, language: str) -> None:
-        """Set the current recording language for a user."""
+        """Set the current recording language for the active account."""
         now = self._now()
         await asyncio.to_thread(
             lambda: self.client.table("users").update({
                 "current_language": language,
                 "updated_at": now,
-            }).eq("telegram_id", telegram_id).execute()
+            }).eq("telegram_id", telegram_id).eq("cv_token", "active").execute()
         )
 
     async def update_user_demographics(
@@ -127,14 +132,14 @@ class Database:
         age: Optional[str],
         gender: Optional[str],
     ) -> None:
-        """Update user's demographic info (age and gender)."""
+        """Update demographic info on the active account."""
         now = self._now()
         await asyncio.to_thread(
             lambda: self.client.table("users").update({
                 "age": age,
                 "gender": gender,
                 "updated_at": now,
-            }).eq("telegram_id", telegram_id).execute()
+            }).eq("telegram_id", telegram_id).eq("cv_token", "active").execute()
         )
 
     # ==========================================
@@ -142,43 +147,28 @@ class Database:
     # ==========================================
 
     async def get_bot_language(self, telegram_id: int) -> str:
-        """Get bot interface language for a user."""
+        """Get bot interface language from user preferences."""
         result = await asyncio.to_thread(
-            lambda: self.client.table("users").select("bot_language").eq("telegram_id", telegram_id).execute()
+            lambda: self.client.table("user_preferences")
+                .select("bot_language")
+                .eq("telegram_id", telegram_id)
+                .execute()
         )
         if result.data:
             return result.data[0]["bot_language"]
-        
-        result = await asyncio.to_thread(
-            lambda: self.client.table("user_preferences").select("bot_language").eq("telegram_id", telegram_id).execute()
-        )
-        if result.data:
-            return result.data[0]["bot_language"]
-        
-        return "es"  # Default to Spanish
+        return "es"
 
     async def set_bot_language(self, telegram_id: int, language: str) -> None:
-        """Set bot interface language for a user."""
+        """Set bot interface language in user preferences."""
         now = self._now()
-        
-        user = await self.get_user(telegram_id)
-        
-        if user:
-            await asyncio.to_thread(
-                lambda: self.client.table("users").update({
-                    "bot_language": language,
-                    "updated_at": now
-                }).eq("telegram_id", telegram_id).execute()
-            )
-        else:
-            data = {
-                "telegram_id": telegram_id,
-                "bot_language": language,
-                "updated_at": now,
-            }
-            await asyncio.to_thread(
-                lambda: self.client.table("user_preferences").upsert(data, on_conflict="telegram_id").execute()
-            )
+        data = {
+            "telegram_id": telegram_id,
+            "bot_language": language,
+            "updated_at": now,
+        }
+        await asyncio.to_thread(
+            lambda: self.client.table("user_preferences").upsert(data, on_conflict="telegram_id").execute()
+        )
 
     # ==========================================
     # Sentence operations
