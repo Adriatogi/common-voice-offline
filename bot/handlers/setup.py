@@ -343,5 +343,6 @@ handler(priority=21)(
             SENTENCE_COUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_sentence_count)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
     )
 )

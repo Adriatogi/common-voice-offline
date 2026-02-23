@@ -191,5 +191,6 @@ handler(priority=20)(
             USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_username)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
     )
 )
