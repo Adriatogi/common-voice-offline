@@ -1,7 +1,10 @@
 """Voice recording handlers."""
 
+import logging
 import os
 import re
+
+logger = logging.getLogger(__name__)
 
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
@@ -89,7 +92,19 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     
     # Save the recording file_id (support both voice notes and audio files)
     voice = update.message.voice or update.message.audio
-    await db.save_recording(sentence["id"], voice.file_id)
+
+    # Download audio and back it up to Supabase Storage
+    storage_path = None
+    try:
+        audio_file = await context.bot.get_file(voice.file_id)
+        audio_bytes = bytes(await audio_file.download_as_bytearray())
+        storage_path = await db.upload_audio_to_storage(
+            cv_user_id, current_language, sentence["text_id"], audio_bytes,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to back up audio to storage: {e}")
+
+    await db.save_recording(sentence["id"], voice.file_id, storage_path=storage_path)
     
     # Get stats
     stats = await db.get_recording_stats(cv_user_id, current_language)

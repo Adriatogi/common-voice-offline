@@ -301,7 +301,9 @@ class Database:
     # Recording operations
     # ==========================================
 
-    async def save_recording(self, sentence_id: int, file_id: str) -> None:
+    async def save_recording(
+        self, sentence_id: int, file_id: str, storage_path: Optional[str] = None,
+    ) -> None:
         """Save a recording for a sentence."""
         now = self._now()
         data = {
@@ -310,11 +312,27 @@ class Database:
             "status": "pending",
             "created_at": now,
         }
+        if storage_path:
+            data["storage_path"] = storage_path
         await asyncio.to_thread(
             lambda: self.client.table("recordings")
                 .upsert(data, on_conflict="sentence_id")
                 .execute()
         )
+
+    async def upload_audio_to_storage(
+        self, cv_user_id: str, language: str, text_id: str, audio_bytes: bytes,
+    ) -> str:
+        """Upload audio to Supabase Storage and return the storage path."""
+        storage_path = f"{cv_user_id}/{language}/{text_id}.ogg"
+        await asyncio.to_thread(
+            lambda: self.client.storage.from_("recordings").upload(
+                storage_path,
+                audio_bytes,
+                {"content-type": "audio/ogg", "upsert": "true"},
+            )
+        )
+        return storage_path
 
     async def get_recording(self, sentence_id: int) -> Optional[dict]:
         """Get recording for a sentence."""

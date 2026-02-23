@@ -1,5 +1,8 @@
 -- Common Voice Offline Bot - Supabase Schema
 -- Paste this into Supabase SQL Editor and run it
+--
+-- IMPORTANT: Also create a Storage bucket named "recordings" in the Supabase dashboard:
+--   Storage → New Bucket → Name: "recordings" → Private (not public)
 
 -- ============================================
 -- TABLES
@@ -38,6 +41,7 @@ CREATE TABLE recordings (
     id BIGSERIAL PRIMARY KEY,
     sentence_id BIGINT NOT NULL REFERENCES sentences(id) ON DELETE CASCADE,
     file_id TEXT NOT NULL,
+    storage_path TEXT,  -- Supabase Storage path (backup copy of the audio)
     status TEXT NOT NULL DEFAULT 'pending',  -- 'pending', 'uploaded', 'failed'
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
