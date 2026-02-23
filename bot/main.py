@@ -52,10 +52,17 @@ def main() -> None:
     # Load configuration early to validate
     config = get_config()
     
-    # Get bot token from environment
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")
+    # Use --dev flag to run with the dev bot token for local testing
+    dev_mode = "--dev" in os.sys.argv
+    if dev_mode:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN_DEV")
+        if not bot_token:
+            raise ValueError("TELEGRAM_BOT_TOKEN_DEV must be set in .env when using --dev")
+        logger.info("Running in DEV mode")
+    else:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not bot_token:
+            raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")
     
     # Validate CV credentials are set
     if not os.getenv("CV_CLIENT_ID") or not os.getenv("CV_CLIENT_SECRET"):

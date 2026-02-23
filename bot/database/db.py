@@ -65,11 +65,20 @@ class Database:
         return result.data[0] if result.data else None
 
     async def get_user_by_username(self, username: str) -> Optional[dict]:
-        """Get user by username (for checking availability)."""
+        """Get user by username (includes email and telegram_id for ownership verification)."""
         result = await asyncio.to_thread(
-            lambda: self.client.table("users").select("cv_user_id, username").eq("username", username).execute()
+            lambda: self.client.table("users")
+                .select("telegram_id, cv_user_id, username, email")
+                .eq("username", username)
+                .execute()
         )
         return result.data[0] if result.data else None
+
+    async def release_username(self, username: str) -> None:
+        """Delete the users row holding this username, freeing it for reassignment."""
+        await asyncio.to_thread(
+            lambda: self.client.table("users").delete().eq("username", username).execute()
+        )
 
     async def delete_user(self, telegram_id: int) -> None:
         """Delete user and all associated data."""

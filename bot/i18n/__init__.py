@@ -1,9 +1,14 @@
 """Internationalization module for the bot."""
 
+import re
+
 from bot.i18n.translations import TRANSLATIONS
 
 # Default language
 DEFAULT_LANG = "es"
+
+# Telegram MarkdownV1 special characters that need escaping in user-provided values
+_MD_SPECIAL = re.compile(r'([_*`\[])')
 
 # Supported bot interface languages (not the same as Common Voice languages)
 BOT_LANGUAGES = {
@@ -40,11 +45,13 @@ def t(lang: str, key: str, **kwargs) -> str:
     if text is None:
         text = TRANSLATIONS[DEFAULT_LANG].get(key, f"[Missing: {key}]")
     
-    # Apply format arguments if any
+    # Escape Markdown special characters in user-provided values so they don't
+    # break Telegram's MarkdownV1 parser (e.g. underscores in usernames).
     if kwargs:
+        safe_kwargs = {k: _MD_SPECIAL.sub(r'\\\1', str(v)) for k, v in kwargs.items()}
         try:
-            text = text.format(**kwargs)
+            text = text.format(**safe_kwargs)
         except KeyError:
-            pass  # Return unformatted if args don't match
+            pass
     
     return text

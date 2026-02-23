@@ -82,44 +82,68 @@ async def receive_email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive username and complete registration."""
+    """Receive username and complete registration or re-login.
+
+    Three cases:
+    1. Username doesn't exist       → create new CV account
+    2. Username exists, email match  → re-login (claim the account)
+    3. Username exists, email mismatch → reject ("taken")
+    """
     config: Config = context.bot_data["config"]
     db: Database = context.bot_data["db"]
     telegram_id = update.effective_user.id
     lang = await db.get_bot_language(telegram_id)
-    
-    username = update.message.text.strip()
-    
+
+    username = update.message.text.strip().lower()
+
     if not username or len(username) < 2:
         await update.message.reply_text(t(lang, "login_invalid_username"))
         return USERNAME
-    
-    # Check if username is already taken
-    existing_username = await db.get_user_by_username(username)
-    if existing_username:
-        await update.message.reply_text(t(lang, "login_username_taken"))
-        return USERNAME
-    
+
     email = context.user_data.get("temp_email")
-    
-    # Check if user already exists in our database
-    existing_user = await db.get_user(telegram_id)
-    is_returning = existing_user is not None
-    
-    if is_returning:
+    existing_account = await db.get_user_by_username(username)
+
+    if existing_account:
+        # Username already exists — verify ownership via email
+        if existing_account["email"] != email:
+            await update.message.reply_text(t(lang, "login_username_taken"))
+            return USERNAME
+
+        # Email matches — re-login / claim this account
+        cv_user_id = existing_account["cv_user_id"]
+
         await update.message.reply_text(t(lang, "login_logging_in"))
-    else:
-        await update.message.reply_text(t(lang, "login_creating"))
-    
-    # Create/get user in Common Voice using admin credentials
+
+        # If a different telegram_id holds this username, free the row first
+        if existing_account["telegram_id"] != telegram_id:
+            await db.release_username(username)
+
+        await db.save_user(
+            telegram_id=telegram_id,
+            email=email,
+            username=username,
+            cv_user_id=cv_user_id,
+            bot_language=lang,
+        )
+
+        context.user_data.pop("temp_email", None)
+        await update.message.reply_text(
+            t(lang, "login_welcome_back", username=username, cv_user_id=cv_user_id),
+            parse_mode="Markdown",
+        )
+        return ConversationHandler.END
+
+    # Username doesn't exist — create a new CV account
+    await update.message.reply_text(t(lang, "login_creating"))
+
     api_client = _get_api_client(config)
     try:
         user_info = await api_client.create_user(email, username)
         cv_user_id = user_info.get("userId")
-        
+
         if not cv_user_id:
             raise CVAPIError("No userId returned from API")
-        
+
     except CVAPIError as e:
         await update.message.reply_text(
             t(lang, "login_failed", error=e.detail or e.message)
@@ -127,8 +151,7 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return ConversationHandler.END
     finally:
         await api_client.close()
-    
-    # Save to database (preserve bot language preference)
+
     await db.save_user(
         telegram_id=telegram_id,
         email=email,
@@ -136,20 +159,12 @@ async def receive_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         cv_user_id=cv_user_id,
         bot_language=lang,
     )
-    
-    # Clear temporary data
+
     context.user_data.pop("temp_email", None)
-    
-    if is_returning:
-        await update.message.reply_text(
-            t(lang, "login_welcome_back", username=username, cv_user_id=cv_user_id),
-            parse_mode="Markdown",
-        )
-    else:
-        await update.message.reply_text(
-            t(lang, "login_success", username=username, cv_user_id=cv_user_id),
-            parse_mode="Markdown",
-        )
+    await update.message.reply_text(
+        t(lang, "login_success", username=username, cv_user_id=cv_user_id),
+        parse_mode="Markdown",
+    )
     return ConversationHandler.END
 
 
